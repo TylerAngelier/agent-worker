@@ -1,12 +1,12 @@
 import type { Logger } from "../logger.ts";
 import type { Ticket } from "../providers/types.ts";
+import type { CodeExecutor } from "./executor.ts";
 import { buildTaskVars } from "./interpolate.ts";
 import { runHooks } from "./hook-runner.ts";
-import { runClaude } from "./claude-executor.ts";
 
 export type PipelineResult = {
   success: boolean;
-  stage?: "pre-hook" | "claude" | "post-hook";
+  stage?: "pre-hook" | "executor" | "post-hook";
   error?: string;
   output?: string;
 };
@@ -16,10 +16,11 @@ export async function executePipeline(options: {
   preHooks: string[];
   postHooks: string[];
   repoCwd: string;
-  claudeTimeoutMs: number;
+  executor: CodeExecutor;
+  timeoutMs: number;
   logger: Logger;
 }): Promise<PipelineResult> {
-  const { ticket, preHooks, postHooks, repoCwd, claudeTimeoutMs, logger } = options;
+  const { ticket, preHooks, postHooks, repoCwd, executor, timeoutMs, logger } = options;
   const vars = buildTaskVars(ticket);
 
   // Pre-hooks
@@ -34,17 +35,17 @@ export async function executePipeline(options: {
     }
   }
 
-  // Claude Code
+  // Code executor
   const prompt = `Linear ticket: ${ticket.title}\n\n${ticket.description || "No description provided."}`;
-  const claudeResult = await runClaude(prompt, repoCwd, claudeTimeoutMs, logger);
-  if (!claudeResult.success) {
-    const reason = claudeResult.timedOut
-      ? `Timed out after ${claudeTimeoutMs}ms`
-      : `Exited with code ${claudeResult.exitCode}`;
+  const execResult = await executor.run(prompt, repoCwd, timeoutMs, logger);
+  if (!execResult.success) {
+    const reason = execResult.timedOut
+      ? `Timed out after ${timeoutMs}ms`
+      : `Exited with code ${execResult.exitCode}`;
     return {
       success: false,
-      stage: "claude",
-      error: `${reason}: ${claudeResult.output.slice(-2000)}`,
+      stage: "executor",
+      error: `${reason}: ${execResult.output.slice(-2000)}`,
     };
   }
 
@@ -60,5 +61,5 @@ export async function executePipeline(options: {
     }
   }
 
-  return { success: true, output: claudeResult.output };
+  return { success: true, output: execResult.output };
 }

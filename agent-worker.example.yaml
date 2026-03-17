@@ -23,15 +23,15 @@ repo:
   path: "/path/to/your/repo"
 
 hooks:
-  # Shell commands to run BEFORE Claude Code is invoked (optional)
-  # If any command fails, the ticket is marked failed and Claude is not invoked
+  # Shell commands to run BEFORE the agent is invoked (optional)
+  # If any command fails, the ticket is marked failed and the agent is not invoked
   # Supports variables: {id} (ticket ID), {title} (slugified title), {branch} (branch name)
   pre:
     - "git checkout main"
     - "git pull origin main"
     - "git checkout -b agent/task-{id}"
 
-  # Shell commands to run AFTER Claude Code completes successfully (optional)
+  # Shell commands to run AFTER the agent completes successfully (optional)
   # If any command fails, the ticket is marked failed
   post:
     - "bun run lint"
@@ -40,8 +40,11 @@ hooks:
     - "git commit -m 'feat: {title}'"
     - "git push origin agent/task-{id}"
 
-claude:
-  # Maximum time in seconds for Claude Code to complete (default: 300)
+executor:
+  # Agent harness to use: "claude" (default) or "codex"
+  type: claude
+
+  # Maximum time in seconds for the agent to complete (default: 300)
   timeout_seconds: 300
 
   # Number of retry attempts on failure, 0-3 (default: 0)

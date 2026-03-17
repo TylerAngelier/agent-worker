@@ -44,13 +44,14 @@ repo:
     expect(config.repo.path).toBe("/tmp/repo");
     expect(config.hooks.pre).toEqual([]);
     expect(config.hooks.post).toEqual([]);
-    expect(config.claude.timeout_seconds).toBe(300);
-    expect(config.claude.retries).toBe(0);
+    expect(config.executor.type).toBe("claude");
+    expect(config.executor.timeout_seconds).toBe(300);
+    expect(config.executor.retries).toBe(0);
     expect(config.log.level).toBe("info");
     expect(config.apiKey).toBe("test-api-key-123");
   });
 
-  test("parses config with all fields set", () => {
+  test("parses config with executor fields set", () => {
     const fullYaml = `
 linear:
   project_id: "proj-456"
@@ -68,7 +69,8 @@ hooks:
     - "git checkout -b feature"
   post:
     - "npm test"
-claude:
+executor:
+  type: claude
   timeout_seconds: 600
   retries: 2
 log:
@@ -79,9 +81,51 @@ log:
     expect(config.linear.poll_interval_seconds).toBe(30);
     expect(config.hooks.pre).toEqual(["git pull", "git checkout -b feature"]);
     expect(config.hooks.post).toEqual(["npm test"]);
-    expect(config.claude.timeout_seconds).toBe(600);
-    expect(config.claude.retries).toBe(2);
+    expect(config.executor.type).toBe("claude");
+    expect(config.executor.timeout_seconds).toBe(600);
+    expect(config.executor.retries).toBe(2);
     expect(config.log.file).toBe("./test.log");
+  });
+
+  test("parses config with codex executor", () => {
+    const yaml = `
+linear:
+  project_id: "proj-123"
+  statuses:
+    ready: "Todo"
+    in_progress: "In Progress"
+    done: "Done"
+    failed: "Canceled"
+repo:
+  path: "/tmp/repo"
+executor:
+  type: codex
+  timeout_seconds: 120
+`;
+    const config = loadConfig(writeConfig(yaml));
+    expect(config.executor.type).toBe("codex");
+    expect(config.executor.timeout_seconds).toBe(120);
+  });
+
+  test("backward compat: maps claude key to executor", () => {
+    const yaml = `
+linear:
+  project_id: "proj-123"
+  statuses:
+    ready: "Todo"
+    in_progress: "In Progress"
+    done: "Done"
+    failed: "Canceled"
+repo:
+  path: "/tmp/repo"
+claude:
+  timeout_seconds: 600
+  retries: 2
+`;
+    const config = loadConfig(writeConfig(yaml));
+    expect(config.executor.type).toBe("claude");
+    expect(config.executor.timeout_seconds).toBe(600);
+    expect(config.executor.retries).toBe(2);
   });
 
   test("throws on missing project_id", () => {
@@ -139,7 +183,7 @@ linear:
     failed: "Canceled"
 repo:
   path: "/tmp/repo"
-claude:
+executor:
   retries: 5
 `;
     expect(() => loadConfig(writeConfig(yaml))).toThrow();

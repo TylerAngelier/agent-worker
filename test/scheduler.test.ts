@@ -33,7 +33,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
     },
     repo: { path: "/tmp" },
     hooks: { pre: [], post: [] },
-    claude: { timeout_seconds: 5, retries: 0 },
+    executor: { type: "claude", timeout_seconds: 5, retries: 0 },
     log: { level: "info" },
     ...overrides,
   };

@@ -88,7 +88,8 @@ hooks:
     - "git commit -m 'feat: {title}'"
     - "git push origin agent/task-{id}"
 
-claude:
+executor:
+  type: claude                        # Agent harness: "claude" or "codex"
   timeout_seconds: 300                # Max time for the agent to complete
   retries: 0                          # Retry attempts on failure (0–3)
 

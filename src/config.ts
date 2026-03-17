@@ -24,10 +24,11 @@ const HooksSchema = z.object({
   post: z.array(z.string()).default([]),
 }).default({ pre: [], post: [] });
 
-const ClaudeSchema = z.object({
+const ExecutorSchema = z.object({
+  type: z.enum(["claude", "codex"]).default("claude"),
   timeout_seconds: z.number().positive().default(300),
   retries: z.number().int().min(0).max(3).default(0),
-}).default({ timeout_seconds: 300, retries: 0 });
+}).default({ type: "claude", timeout_seconds: 300, retries: 0 });
 
 const LogSchema = z.object({
   file: z.string().optional(),
@@ -38,7 +39,7 @@ const ConfigFileSchema = z.object({
   linear: LinearSchema,
   repo: RepoSchema,
   hooks: HooksSchema,
-  claude: ClaudeSchema,
+  executor: ExecutorSchema,
   log: LogSchema,
 });
 
@@ -55,7 +56,14 @@ export function loadConfig(filePath: string): Config {
   }
 
   const text = readFileSync(filePath, "utf-8");
-  const raw = parseYaml(text);
+  const raw = parseYaml(text) as Record<string, unknown>;
+
+  // Backward compat: map `claude` key to `executor` with type "claude"
+  if (raw.claude && !raw.executor) {
+    raw.executor = { ...(raw.claude as Record<string, unknown>), type: "claude" };
+    delete raw.claude;
+  }
+
   const parsed = ConfigFileSchema.parse(raw);
 
   return { ...parsed, apiKey };

@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { executePipeline } from "../src/pipeline/pipeline.ts";
+import type { CodeExecutor } from "../src/pipeline/executor.ts";
 import type { Logger } from "../src/logger.ts";
 import type { Ticket } from "../src/providers/types.ts";
 
@@ -17,14 +18,40 @@ const ticket: Ticket = {
   description: "Do something",
 };
 
+function mockExecutor(overrides?: Partial<CodeExecutor>): CodeExecutor {
+  return {
+    name: "mock",
+    run: async () => ({
+      success: true,
+      output: "mock output",
+      timedOut: false,
+      exitCode: 0,
+    }),
+    ...overrides,
+  };
+}
+
+function failingExecutor(): CodeExecutor {
+  return {
+    name: "mock",
+    run: async () => ({
+      success: false,
+      output: "error output",
+      timedOut: false,
+      exitCode: 1,
+    }),
+  };
+}
+
 describe("executePipeline", () => {
-  test("fails on pre-hook failure before reaching claude", async () => {
+  test("fails on pre-hook failure before reaching executor", async () => {
     const result = await executePipeline({
       ticket,
       preHooks: ["exit 1"],
       postHooks: [],
       repoCwd: "/tmp",
-      claudeTimeoutMs: 5000,
+      executor: mockExecutor(),
+      timeoutMs: 5000,
       logger: noopLogger,
     });
     expect(result.success).toBe(false);
@@ -37,7 +64,8 @@ describe("executePipeline", () => {
       preHooks: ["echo 'setup ok'", "sh -c 'echo bad >&2; exit 2'"],
       postHooks: [],
       repoCwd: "/tmp",
-      claudeTimeoutMs: 5000,
+      executor: mockExecutor(),
+      timeoutMs: 5000,
       logger: noopLogger,
     });
     expect(result.success).toBe(false);
@@ -45,19 +73,46 @@ describe("executePipeline", () => {
     expect(result.error).toContain("exited with code 2");
   });
 
-  test("succeeds when all pre-hooks pass and claude succeeds", async () => {
-    // Use `echo` as a stand-in for claude by testing just hooks
-    // Real claude integration is tested manually
+  test("succeeds when all hooks pass and executor succeeds", async () => {
     const result = await executePipeline({
       ticket,
       preHooks: ["echo pre"],
-      postHooks: [],
+      postHooks: ["echo post"],
       repoCwd: "/tmp",
-      claudeTimeoutMs: 1000,
+      executor: mockExecutor(),
+      timeoutMs: 5000,
       logger: noopLogger,
     });
-    // Will fail at claude stage since claude isn't installed, which is expected
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("mock output");
+  });
+
+  test("fails at executor stage when executor fails", async () => {
+    const result = await executePipeline({
+      ticket,
+      preHooks: [],
+      postHooks: [],
+      repoCwd: "/tmp",
+      executor: failingExecutor(),
+      timeoutMs: 5000,
+      logger: noopLogger,
+    });
     expect(result.success).toBe(false);
-    expect(result.stage).toBe("claude");
+    expect(result.stage).toBe("executor");
+  });
+
+  test("does not run post-hooks when executor fails", async () => {
+    let postHookRan = false;
+    const result = await executePipeline({
+      ticket,
+      preHooks: [],
+      postHooks: ["echo post"],
+      repoCwd: "/tmp",
+      executor: failingExecutor(),
+      timeoutMs: 5000,
+      logger: noopLogger,
+    });
+    expect(result.success).toBe(false);
+    expect(result.stage).toBe("executor");
   });
 });

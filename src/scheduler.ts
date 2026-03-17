@@ -2,6 +2,7 @@ import type { Logger } from "./logger.ts";
 import type { Config } from "./config.ts";
 import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
+import { createExecutor } from "./pipeline/executor.ts";
 
 function lastNLines(text: string, n: number): string {
   const lines = text.split("\n");
@@ -28,15 +29,17 @@ export async function processTicket(options: {
     return;
   }
 
+  const executor = createExecutor(config.executor.type);
+
   // Run pipeline with retries
   let lastResult: Awaited<ReturnType<typeof executePipeline>> | undefined;
 
-  for (let attempt = 0; attempt <= config.claude.retries; attempt++) {
+  for (let attempt = 0; attempt <= config.executor.retries; attempt++) {
     if (attempt > 0) {
       logger.warn("Retrying pipeline", {
         ticketId: ticket.identifier,
         attempt,
-        maxRetries: config.claude.retries,
+        maxRetries: config.executor.retries,
       });
     }
 
@@ -46,7 +49,8 @@ export async function processTicket(options: {
         preHooks: config.hooks.pre,
         postHooks: config.hooks.post,
         repoCwd: config.repo.path,
-        claudeTimeoutMs: config.claude.timeout_seconds * 1000,
+        executor,
+        timeoutMs: config.executor.timeout_seconds * 1000,
         logger,
       });
 
@@ -59,7 +63,7 @@ export async function processTicket(options: {
       });
       lastResult = {
         success: false,
-        stage: "claude" as const,
+        stage: "executor" as const,
         error: err instanceof Error ? err.message : String(err),
       };
     }

@@ -50,11 +50,12 @@ describe("buildTaskVars", () => {
     expect(vars.title).toBe("fix-login-bug");
     expect(vars.raw_title).toBe("Fix login bug");
     expect(vars.branch).toBe("agent/task-ENG-123");
+    expect(vars.worktree).toBe("");
   });
 });
 
 describe("interpolate", () => {
-  const vars = { id: "ENG-123", title: "fix-login-bug", raw_title: "Fix login bug", branch: "agent/task-ENG-123" };
+  const vars = { id: "ENG-123", title: "fix-login-bug", raw_title: "Fix login bug", branch: "agent/task-ENG-123", worktree: "/tmp/agent-worker-agent-task-ENG-123" };
 
   test("replaces all variables", () => {
     expect(interpolate("git checkout -b {branch}", vars)).toBe(
@@ -85,5 +86,11 @@ describe("interpolate", () => {
   test("replaces {date} with an ISO 8601 date string", () => {
     const result = interpolate("run at {date}", vars);
     expect(result).toMatch(/^run at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  });
+
+  test("replaces {worktree} with the worktree path", () => {
+    expect(interpolate("cd {worktree}", vars)).toBe(
+      "cd /tmp/agent-worker-agent-task-ENG-123"
+    );
   });
 });

@@ -96,6 +96,8 @@ export async function executePipeline(options: {
     }
   }
 
+  vars.worktree = effectiveCwd;
+
   try {
     // Pre-hooks
     if (preHooks.length > 0) {

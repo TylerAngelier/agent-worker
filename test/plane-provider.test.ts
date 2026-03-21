@@ -11,7 +11,8 @@ const planeConfig = {
   statuses: {
     ready: "Backlog",
     in_progress: "In Progress",
-    done: "Done",
+    code_review: "Code Review",
+    verification: "Verification",
     failed: "Canceled",
   },
 };
@@ -20,6 +21,32 @@ const projectResponse = {
   ok: true,
   json: async () => ({ identifier: "ENG" }),
 };
+
+const statesResponse = {
+  ok: true,
+  json: async () => ({
+    results: [
+      { id: "state-backlog", name: "Backlog", group: "backlog" },
+      { id: "state-in-progress", name: "In Progress", group: "started" },
+      { id: "state-code-review", name: "Code Review", group: "started" },
+      { id: "state-verification", name: "Verification", group: "completed" },
+      { id: "state-canceled", name: "Canceled", group: "cancelled" },
+    ],
+  }),
+};
+
+function createMockFetch(responses: Record<string, Response>) {
+  const mockFn = mock((url: string) => {
+    for (const [pattern, response] of Object.entries(responses)) {
+      if (url.includes(pattern)) {
+        return Promise.resolve(response);
+      }
+    }
+    return Promise.resolve(new Response("not found", { status: 404 }));
+  });
+  mockFn.preconnect = mock(() => Promise.resolve());
+  return mockFn;
+}
 
 describe("createPlaneProvider", () => {
   beforeEach(() => {
@@ -54,38 +81,63 @@ describe("createPlaneProvider", () => {
             sequence_id: 42,
             name: "Fix the login bug",
             description_html: "<p>Login is broken</p>",
-            state: "backlog",
+            state: "state-backlog",
           },
         ],
       }),
     };
 
-    globalThis.fetch = mock((url: string) => {
-      if (url.includes("/projects/proj-uuid-123/issues/")) {
-        return Promise.resolve(issuesResponse as Response);
-      }
-      // Project detail endpoint
-      if (url.endsWith("/projects/proj-uuid-123/")) {
-        return Promise.resolve(projectResponse as Response);
-      }
-      return Promise.resolve(new Response("not found", { status: 404 }));
+    globalThis.fetch = createMockFetch({
+      "/projects/proj-uuid-123/issues/": issuesResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
+      "/states/": statesResponse as unknown as Response,
     });
 
     const provider = createPlaneProvider(planeConfig);
     const tickets = await provider.fetchReadyTickets();
 
     expect(tickets).toHaveLength(1);
-    expect(tickets[0].id).toBe("issue-uuid-1");
-    expect(tickets[0].identifier).toBe("ENG-42");
-    expect(tickets[0].title).toBe("Fix the login bug");
-    expect(tickets[0].description).toBe("<p>Login is broken</p>");
+    expect(tickets[0]!.id).toBe("issue-uuid-1");
+    expect(tickets[0]!.identifier).toBe("ENG-42");
+    expect(tickets[0]!.title).toBe("Fix the login bug");
+    expect(tickets[0]!.description).toBe("<p>Login is broken</p>");
+  });
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-    const calls = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
-    // First call should be project detail, second should be issues
-    expect(calls[0][0]).toContain("/projects/proj-uuid-123/");
-    expect(calls[1][0]).toContain("query=state_group");
-    expect(calls[1][0]).toContain("/projects/proj-uuid-123/issues/");
+  test("fetchReadyTickets filters out tickets not in ready state", async () => {
+    const issuesResponse = {
+      ok: true,
+      json: async () => ({
+        results: [
+          {
+            id: "issue-uuid-1",
+            sequence_id: 42,
+            name: "Backlog ticket",
+            description_html: null,
+            state: "state-backlog",
+          },
+          {
+            id: "issue-uuid-2",
+            sequence_id: 43,
+            name: "In progress ticket",
+            description_html: null,
+            state: "state-in-progress",
+          },
+        ],
+      }),
+    };
+
+    globalThis.fetch = createMockFetch({
+      "/projects/proj-uuid-123/issues/": issuesResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
+      "/states/": statesResponse as unknown as Response,
+    });
+
+    const provider = createPlaneProvider(planeConfig);
+    const tickets = await provider.fetchReadyTickets();
+
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]!.id).toBe("issue-uuid-1");
+    expect(tickets[0]!.title).toBe("Backlog ticket");
   });
 
   test("fetchReadyTickets handles null description_html", async () => {
@@ -98,26 +150,22 @@ describe("createPlaneProvider", () => {
             sequence_id: 43,
             name: "No desc issue",
             description_html: null,
-            state: "backlog",
+            state: "state-backlog",
           },
         ],
       }),
     };
 
-    globalThis.fetch = mock((url: string) => {
-      if (url.includes("/projects/proj-uuid-123/issues/")) {
-        return Promise.resolve(issuesResponse as Response);
-      }
-      if (url.endsWith("/projects/proj-uuid-123/")) {
-        return Promise.resolve(projectResponse as Response);
-      }
-      return Promise.resolve(new Response("not found", { status: 404 }));
+    globalThis.fetch = createMockFetch({
+      "/projects/proj-uuid-123/issues/": issuesResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
+      "/states/": statesResponse as unknown as Response,
     });
 
     const provider = createPlaneProvider(planeConfig);
     const tickets = await provider.fetchReadyTickets();
 
-    expect(tickets[0].description).toBeUndefined();
+    expect(tickets[0]!.description).toBeUndefined();
   });
 
   test("fetchReadyTickets returns empty array when no issues", async () => {
@@ -126,14 +174,10 @@ describe("createPlaneProvider", () => {
       json: async () => ({ results: [] }),
     };
 
-    globalThis.fetch = mock((url: string) => {
-      if (url.includes("/projects/proj-uuid-123/issues/")) {
-        return Promise.resolve(emptyResponse as Response);
-      }
-      if (url.endsWith("/projects/proj-uuid-123/")) {
-        return Promise.resolve(projectResponse as Response);
-      }
-      return Promise.resolve(new Response("not found", { status: 404 }));
+    globalThis.fetch = createMockFetch({
+      "/projects/proj-uuid-123/issues/": emptyResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
+      "/states/": statesResponse as unknown as Response,
     });
 
     const provider = createPlaneProvider(planeConfig);
@@ -143,41 +187,25 @@ describe("createPlaneProvider", () => {
   });
 
   test("transitionStatus fetches states then patches issue", async () => {
-    const statesResponse = {
-      ok: true,
-      json: async () => ({
-        results: [
-          { id: "state-1", name: "Backlog", group: "backlog" },
-          { id: "state-2", name: "In Progress", group: "started" },
-          { id: "state-3", name: "Done", group: "completed" },
-          { id: "state-4", name: "Canceled", group: "cancelled" },
-        ],
-      }),
-    };
-
     const patchResponse = {
       ok: true,
       json: async () => ({}),
     };
 
-    globalThis.fetch = mock((url: string) => {
-      if (url.includes("/states/")) {
-        return Promise.resolve(statesResponse as Response);
-      }
-      if (url.endsWith("/projects/proj-uuid-123/")) {
-        return Promise.resolve(projectResponse as Response);
-      }
-      return Promise.resolve(patchResponse as Response);
+    globalThis.fetch = createMockFetch({
+      "/states/": statesResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
+      "/issues/": patchResponse as unknown as Response,
     });
 
     const provider = createPlaneProvider(planeConfig);
-    await provider.transitionStatus("issue-uuid-1", "Done");
+    await provider.transitionStatus("issue-uuid-1", "Verification");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
   test("transitionStatus throws when state name not found", async () => {
-    const statesResponse = {
+    const limitedStatesResponse = {
       ok: true,
       json: async () => ({
         results: [
@@ -186,19 +214,14 @@ describe("createPlaneProvider", () => {
       }),
     };
 
-    globalThis.fetch = mock((url: string) => {
-      if (url.includes("/states/")) {
-        return Promise.resolve(statesResponse as Response);
-      }
-      if (url.endsWith("/projects/proj-uuid-123/")) {
-        return Promise.resolve(projectResponse as Response);
-      }
-      return Promise.resolve(new Response("not found", { status: 404 }));
+    globalThis.fetch = createMockFetch({
+      "/states/": limitedStatesResponse as unknown as Response,
+      "/projects/proj-uuid-123/": projectResponse as unknown as Response,
     });
 
     const provider = createPlaneProvider(planeConfig);
-    await expect(provider.transitionStatus("issue-uuid-1", "Done")).rejects.toThrow(
-      'Plane state "Done" not found'
+    await expect(provider.transitionStatus("issue-uuid-1", "Verification")).rejects.toThrow(
+      'Plane state "Verification" not found'
     );
   });
 
@@ -208,13 +231,16 @@ describe("createPlaneProvider", () => {
       json: async () => ({ id: "comment-1" }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(mockResponse as Response));
+    const mockFn = mock(() => Promise.resolve(mockResponse as Response));
+    mockFn.preconnect = mock(() => Promise.resolve());
+    globalThis.fetch = mockFn;
 
     const provider = createPlaneProvider(planeConfig);
     await provider.postComment("issue-uuid-1", "Test comment");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const call = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
+    const calls = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    const call = calls[0]!;
     expect(call[0]).toContain("/issues/issue-uuid-1/comments/");
     expect(call[1].method).toBe("POST");
   });

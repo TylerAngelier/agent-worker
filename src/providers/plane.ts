@@ -78,14 +78,15 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
 
   async function planeFetch(path: string, options?: RequestInit): Promise<Response> {
     const url = `${baseUrl}/api/v1/workspaces/${workspace_slug}${path}`;
+    const headers: Record<string, string> = {
+      "x-api-key": apiKey,
+      "Content-Type": "application/json",
+      ...(options?.headers as Record<string, string> | undefined),
+    };
     const res = await withBackoff(() =>
       fetch(url, {
         ...options,
-        headers: {
-          "x-api-key": apiKey,
-          "Content-Type": "application/json",
-          ...options?.headers,
-        },
+        headers,
       })
     );
     if (!res.ok) {
@@ -119,17 +120,23 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
   return {
     async fetchReadyTickets(): Promise<Ticket[]> {
       const identifier = await getProjectIdentifier();
+      const states = await getStates();
+      const readyState = states.find((s) => s.name === config.statuses.ready);
+      const readyStateId = readyState?.id;
+
       const params = new URLSearchParams();
       params.set("query", config.query);
       const res = await planeFetch(`/projects/${project_id}/issues/?${params}`);
       const data = (await res.json()) as PlaneIssuesResponse;
 
-      return data.results.map((issue) => ({
-        id: issue.id,
-        identifier: makeIdentifier(issue, identifier),
-        title: issue.name,
-        description: issue.description_html ?? undefined,
-      }));
+      return data.results
+        .filter((issue) => !readyStateId || issue.state === readyStateId)
+        .map((issue) => ({
+          id: issue.id,
+          identifier: makeIdentifier(issue, identifier),
+          title: issue.name,
+          description: issue.description_html ?? undefined,
+        }));
     },
 
     async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {

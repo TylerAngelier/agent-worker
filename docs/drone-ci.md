@@ -1,13 +1,13 @@
 # Drone CI
 
-This project uses [Drone CI](https://docs.drone.io/) for continuous integration. The pipeline runs on every push and pull request.
+This project uses [Drone CI](https://docs.drone.io/) for continuous integration. Type checking and tests run on pull requests. Cross-platform binaries are built on pushes to `main`.
 
 ## Pipeline Stages
 
 | Stage | Trigger | Description |
 |---|---|---|
-| **typecheck** | push, PR | Runs `tsc --noEmit` to validate TypeScript types |
-| **test** | push, PR | Runs `bun test` |
+| **typecheck** | PR | Runs `tsc --noEmit` to validate TypeScript types |
+| **test** | PR | Runs `bun test` |
 | **build-linux** | push to `main` | Compiles a linux-x64 binary to `dist/` |
 | **build-darwin** | push to `main` | Compiles a darwin-arm64 binary to `dist/` |
 
@@ -45,7 +45,7 @@ drone secret add TylerAngelier/agent-worker --name MY_SECRET --data "value"
 
 ## Architecture Notes
 
-- The pipeline runs inside Docker containers using the `oven/bun:1` image
+- The pipeline runs inside Docker containers using a `bun:1.3.11` image from the private registry
 - Dependencies are installed per-step (no shared cache in untrusted mode)
 - Build artifacts are not persisted between stages or uploaded automatically
 - Tag-based triggers (`v*`) can be added for release publishing when ready

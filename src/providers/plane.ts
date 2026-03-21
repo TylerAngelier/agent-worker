@@ -69,6 +69,7 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
   if (!apiKey) {
     throw new Error("PLANE_API_KEY environment variable is required for Plane provider");
   }
+  const key: string = apiKey;
 
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const { workspace_slug, project_id } = config;
@@ -78,11 +79,15 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
 
   async function planeFetch(path: string, options?: RequestInit): Promise<Response> {
     const url = `${baseUrl}/api/v1/workspaces/${workspace_slug}${path}`;
-    const headers: Record<string, string> = {
-      "x-api-key": apiKey,
-      "Content-Type": "application/json",
-      ...(options?.headers as Record<string, string> | undefined),
-    };
+    const headers: Record<string, string> = { "x-api-key": key, "Content-Type": "application/json" };
+    const extraHeaders = options?.headers;
+    if (extraHeaders instanceof Headers) {
+      extraHeaders.forEach((value, key) => { headers[key] = value; });
+    } else if (extraHeaders && typeof extraHeaders === "object") {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (typeof value === "string") headers[key] = value;
+      }
+    }
     const res = await withBackoff(() =>
       fetch(url, {
         ...options,

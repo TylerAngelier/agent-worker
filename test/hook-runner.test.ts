@@ -13,7 +13,9 @@ const noopLogger: Logger = {
 const vars: TaskVars = {
   id: "ENG-123",
   title: "fix-bug",
+  raw_title: "fix bug",
   branch: "agent/task-ENG-123",
+  worktree: "/tmp/worktree",
 };
 
 describe("runHooks", () => {

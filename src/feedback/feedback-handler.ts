@@ -108,7 +108,7 @@ export async function processFeedback(options: {
     }
   } finally {
     if (worktreePath) {
-      await removeWorktree(config.repo.path, worktreePath, logger);
+      await removeWorktree(config.repo.path, worktreePath, vars.branch, logger);
     }
   }
 }

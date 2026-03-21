@@ -13,14 +13,18 @@ export type PipelineResult = {
   output?: string;
 };
 
-async function createWorktree(
+export async function createWorktree(
   repoPath: string,
   branch: string,
-  logger: Logger
+  logger: Logger,
+  options?: { createBranch?: boolean },
 ): Promise<string> {
   const worktreePath = join(tmpdir(), `agent-worker-${branch}`);
-  const cmd = `git worktree add -b ${branch} ${worktreePath} main`;
-  logger.info("Creating worktree", { worktreePath, branch });
+  const createBranch = options?.createBranch !== false;
+  const cmd = createBranch
+    ? `git worktree add -b ${branch} ${worktreePath} main`
+    : `git worktree add ${worktreePath} ${branch}`;
+  logger.info("Creating worktree", { worktreePath, branch, createBranch });
 
   const proc = Bun.spawn(["sh", "-c", cmd], {
     cwd: repoPath,
@@ -41,7 +45,7 @@ async function createWorktree(
   return worktreePath;
 }
 
-async function removeWorktree(
+export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
   logger: Logger

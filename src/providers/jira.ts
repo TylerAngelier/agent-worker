@@ -1,4 +1,4 @@
-import type { Ticket, TicketProvider } from "./types.ts";
+import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { JiraProviderConfig } from "../config.ts";
 
 const INITIAL_DELAY_MS = 1000;
@@ -46,6 +46,17 @@ interface JiraTransitionsResponse {
   transitions: { id: string; name: string }[];
 }
 
+interface JiraComment {
+  id: string;
+  author: { name: string; displayName: string };
+  body: string;
+  created: string;
+}
+
+interface JiraCommentsResponse {
+  comments: JiraComment[];
+}
+
 export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
   const username = process.env.JIRA_USERNAME;
   const apiToken = process.env.JIRA_API_TOKEN;
@@ -89,6 +100,19 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
       }));
     },
 
+    async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {
+      const jql = encodeURIComponent(config.jql.replace(/status\s*=\s*'[^']*'/, `status = '${statusName}'`));
+      const res = await jiraFetch(`/search?jql=${jql}&maxResults=50`);
+      const data = (await res.json()) as JiraSearchResponse;
+
+      return data.issues.map((issue) => ({
+        id: issue.id,
+        identifier: issue.key,
+        title: issue.fields.summary,
+        description: issue.fields.description ?? undefined,
+      }));
+    },
+
     async transitionStatus(ticketId: string, statusName: string): Promise<void> {
       // Get available transitions to find the one matching statusName
       const res = await jiraFetch(`/issue/${ticketId}/transitions`);
@@ -109,6 +133,21 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
         method: "POST",
         body: JSON.stringify({ body }),
       });
+    },
+
+    async fetchComments(ticketId: string, since?: string): Promise<TicketComment[]> {
+      const params = new URLSearchParams();
+      if (since) params.set("since", since);
+      const query = params.toString() ? `?${params}` : "";
+      const res = await jiraFetch(`/issue/${ticketId}/comment${query}`);
+      const data = (await res.json()) as JiraCommentsResponse;
+
+      return data.comments.map((c) => ({
+        id: c.id,
+        author: c.author.displayName || c.author.name,
+        body: c.body,
+        createdAt: c.created,
+      }));
     },
   };
 }

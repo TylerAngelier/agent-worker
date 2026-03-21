@@ -1,5 +1,5 @@
 import { LinearClient } from "@linear/sdk";
-import type { Ticket, TicketProvider } from "./types.ts";
+import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { LinearProviderConfig } from "../config.ts";
 
 const INITIAL_DELAY_MS = 1000;
@@ -67,6 +67,24 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
       }));
     },
 
+    async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {
+      const issues = await withBackoff(() =>
+        client.issues({
+          filter: {
+            project: { id: { eq: config.project_id } },
+            state: { name: { eq: statusName } },
+          },
+        })
+      );
+
+      return issues.nodes.map((issue) => ({
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        description: issue.description ?? undefined,
+      }));
+    },
+
     async transitionStatus(ticketId: string, statusName: string): Promise<void> {
       const issue = await withBackoff(() => client.issue(ticketId));
       const team = await issue.team;
@@ -83,6 +101,26 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
       await withBackoff(() =>
         client.createComment({ issueId: ticketId, body })
       );
+    },
+
+    async fetchComments(ticketId: string, since?: string): Promise<TicketComment[]> {
+      const issue = await withBackoff(() => client.issue(ticketId));
+      const connection = await withBackoff(() => issue.comments());
+      const comments = connection.nodes;
+
+      let results = comments.map((c) => ({
+        id: c.id,
+        author: c.body ?? "unknown",
+        body: c.body,
+        createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
+      }));
+
+      if (since) {
+        const sinceDate = new Date(since);
+        results = results.filter((c) => new Date(c.createdAt) > sinceDate);
+      }
+
+      return results;
     },
   };
 }

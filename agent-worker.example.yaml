@@ -20,7 +20,8 @@ provider:
   statuses:
     ready: "Todo"            # Status that marks a ticket as ready for the agent
     in_progress: "In Progress" # Status set when the agent picks up a ticket
-    done: "Done"             # Status set when the agent completes a ticket
+    code_review: "Code Review"  # Status set after the agent creates a PR
+    verification: "Verification" # Status set after the PR is merged (terminal)
     failed: "Canceled"       # Status set when the agent fails a ticket
 
   # --- Jira Server example ---
@@ -31,7 +32,8 @@ provider:
   # statuses:
   #   ready: "Todo"
   #   in_progress: "In Progress"
-  #   done: "Done"
+  #   code_review: "Code Review"
+  #   verification: "Verification"
   #   failed: "Canceled"
 
   # --- Plane example ---
@@ -44,8 +46,23 @@ provider:
   # statuses:
   #   ready: "Backlog"
   #   in_progress: "In Progress"
-  #   done: "Done"
+  #   code_review: "Code Review"
+  #   verification: "Verification"
   #   failed: "Canceled"
+
+# --- SCM (required) ---
+# The source control system where PRs are created
+# Choose one: github or bitbucket_server
+scm:
+  type: github
+  owner: "your-github-org"
+  repo: "your-repo"
+
+  # --- BitBucket Server example ---
+  # type: bitbucket_server
+  # base_url: "https://bitbucket.example.com"
+  # project: "PROJ"
+  # repo: "myrepo"
 
 # --- Repository (required) ---
 repo:
@@ -78,6 +95,15 @@ executor:
   # Number of retry attempts on failure, 0-3 (default: 0)
   retries: 0
 
+# --- Feedback (optional) ---
+feedback:
+  # Comment prefix that triggers the agent to respond (default: "/agent")
+  # Use this on PR comments or ticket comments to ask the agent to address feedback
+  comment_prefix: "/agent"
+
+  # How often to poll for review comments, in seconds (default: 120)
+  poll_interval_seconds: 120
+
 # --- Logging (optional) ---
 log:
   # Path to log file (optional — omit for stdout-only logging)
@@ -86,6 +112,8 @@ log:
 # --- Environment Variables ---
 # Set these in your shell before running agent-worker:
 #
-# Linear:  LINEAR_API_KEY=your-linear-api-key
-# Jira:    JIRA_USERNAME=your-username JIRA_API_TOKEN=your-token
-# Plane:   PLANE_API_KEY=your-plane-api-key
+# Linear:           LINEAR_API_KEY=your-linear-api-key
+# Jira:              JIRA_USERNAME=your-username JIRA_API_TOKEN=your-token
+# Plane:             PLANE_API_KEY=your-plane-api-key
+# GitHub SCM:        GITHUB_TOKEN=your-github-token
+# BitBucket Server:   BITBUCKET_TOKEN=your-bitbucket-token

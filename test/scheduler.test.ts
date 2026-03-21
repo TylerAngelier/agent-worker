@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { processTicket } from "../src/scheduler.ts";
-import type { Ticket, TicketProvider } from "../src/providers/types.ts";
+import type { Ticket, TicketProvider, TicketComment } from "../src/providers/types.ts";
 import type { CodeExecutor } from "../src/pipeline/executor.ts";
 import type { Config } from "../src/config.ts";
 import type { Logger } from "../src/logger.ts";
@@ -28,7 +28,8 @@ function makeConfig(overrides?: Partial<Config>): Config {
       statuses: {
         ready: "Todo",
         in_progress: "In Progress",
-        done: "Done",
+        code_review: "Code Review",
+        verification: "Verification",
         failed: "Canceled",
       },
     },
@@ -36,6 +37,8 @@ function makeConfig(overrides?: Partial<Config>): Config {
     hooks: { pre: [], post: [] },
     executor: { type: "claude", timeout_seconds: 5, retries: 0 },
     log: { level: "info" },
+    scm: { type: "github", owner: "myorg", repo: "myrepo" },
+    feedback: { comment_prefix: "/agent", poll_interval_seconds: 120 },
     ...overrides,
   };
 }
@@ -52,12 +55,14 @@ function makeProvider(overrides?: Partial<TicketProvider>): {
     comments,
     provider: {
       fetchReadyTickets: async () => [],
+      fetchTicketsByStatus: async () => [],
       transitionStatus: async (_id, status) => {
         transitions.push(status);
       },
       postComment: async (_id, body) => {
         comments.push(body);
       },
+      fetchComments: async () => [],
       ...overrides,
     },
   };
@@ -114,10 +119,10 @@ describe("processTicket", () => {
     expect(comments[0]).toContain("pre-hook");
   });
 
-  test("transitions to done and posts comment on success", async () => {
+  test("transitions to code_review and returns branch on success", async () => {
     const { provider, transitions, comments } = makeProvider();
 
-    await processTicket({
+    const result = await processTicket({
       ticket,
       provider,
       config: makeConfig(),
@@ -125,11 +130,15 @@ describe("processTicket", () => {
       executor: mockExecutor({ success: true, output: "all done" }),
     });
 
+    expect(result.outcome).toBe("code_review");
+    if (result.outcome === "code_review") {
+      expect(result.ticketId).toBe("uuid-1");
+      expect(result.branch).toBe("agent/task-ENG-100");
+    }
     expect(transitions).toContain("In Progress");
-    expect(transitions).toContain("Done");
+    expect(transitions).toContain("Code Review");
     expect(transitions).not.toContain("Canceled");
-    expect(comments.length).toBe(1);
-    expect(comments[0]).toContain("Agent Worker Completed");
+    expect(comments[0]).toContain("In Code Review");
     expect(comments[0]).toContain("all done");
   });
 
@@ -182,7 +191,7 @@ describe("processTicket", () => {
     });
 
     expect(callCount).toBe(2);
-    expect(transitions).toContain("Done");
+    expect(transitions).toContain("Code Review");
     expect(transitions).not.toContain("Canceled");
   });
 
@@ -207,10 +216,9 @@ describe("processTicket", () => {
       executor: alwaysFailingExecutor,
     });
 
-    // retries: 2 means 3 total attempts (attempt 0, 1, 2)
     expect(callCount).toBe(3);
     expect(transitions).toContain("Canceled");
-    expect(transitions).not.toContain("Done");
+    expect(transitions).not.toContain("Code Review");
     expect(comments.length).toBe(1);
     expect(comments[0]).toContain("Agent Worker Failure");
   });

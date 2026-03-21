@@ -4,6 +4,9 @@ import { printSplash } from "./format.ts";
 import { createProvider } from "./providers/index.ts";
 import { createPoller } from "./poller.ts";
 import { processTicket } from "./scheduler.ts";
+import { createScmProvider } from "./scm/index.ts";
+import { createPRTracker } from "./feedback/tracking.ts";
+import { createFeedbackPoller } from "./feedback/feedback-poller.ts";
 import { version } from "../package.json";
 
 function main() {
@@ -39,14 +42,34 @@ function main() {
   });
 
   const provider = createProvider(config.provider);
+  const scmProvider = createScmProvider(config.scm);
+  const prTracker = createPRTracker();
 
   const poller = createPoller({
     provider,
     intervalMs: config.provider.poll_interval_seconds * 1000,
     logger,
     onTicket: async (ticket) => {
-      await processTicket({ ticket, provider, config, logger });
+      const result = await processTicket({ ticket, provider, config, logger });
+
+      if (result.outcome === "code_review") {
+        prTracker.track({
+          ticketId: result.ticketId,
+          ticketIdentifier: ticket.identifier,
+          prNumber: 0, // Will be discovered by feedback poller
+          branch: result.branch,
+          lastCommentCheck: new Date().toISOString(),
+        });
+      }
     },
+  });
+
+  const feedbackPoller = createFeedbackPoller({
+    provider,
+    scm: scmProvider,
+    prTracker,
+    config,
+    logger,
   });
 
   logger.info("Agent Worker started", {
@@ -58,10 +81,12 @@ function main() {
   process.on("SIGINT", () => {
     logger.info("Shutting down", { signal: "SIGINT" });
     poller.stop();
+    feedbackPoller.stop();
   });
   process.on("SIGTERM", () => {
     logger.info("Shutting down", { signal: "SIGTERM" });
     poller.stop();
+    feedbackPoller.stop();
   });
 
   poller.start().then(() => {

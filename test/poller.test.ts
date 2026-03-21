@@ -30,6 +30,8 @@ describe("createPoller", () => {
       },
       transitionStatus: async () => {},
       postComment: async () => {},
+      fetchTicketsByStatus: async () => [],
+      fetchComments: async () => [],
     };
 
     const poller = createPoller({
@@ -58,6 +60,8 @@ describe("createPoller", () => {
       },
       transitionStatus: async () => {},
       postComment: async () => {},
+      fetchTicketsByStatus: async () => [],
+      fetchComments: async () => [],
     };
 
     const poller = createPoller({
@@ -83,6 +87,8 @@ describe("createPoller", () => {
       },
       transitionStatus: async () => {},
       postComment: async () => {},
+      fetchTicketsByStatus: async () => [],
+      fetchComments: async () => [],
     };
 
     const poller = createPoller({
@@ -114,6 +120,8 @@ describe("createPoller", () => {
       },
       transitionStatus: async () => {},
       postComment: async () => {},
+      fetchTicketsByStatus: async () => [],
+      fetchComments: async () => [],
     };
 
     const poller = createPoller({
@@ -140,6 +148,8 @@ describe("createPoller", () => {
       },
       transitionStatus: async () => {},
       postComment: async () => {},
+      fetchTicketsByStatus: async () => [],
+      fetchComments: async () => [],
     };
 
     const poller = createPoller({

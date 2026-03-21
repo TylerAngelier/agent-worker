@@ -3,11 +3,16 @@ import type { Config } from "./config.ts";
 import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
+import { buildTaskVars } from "./pipeline/interpolate.ts";
 
 function lastNLines(text: string, n: number): string {
   const lines = text.split("\n");
   return lines.slice(-n).join("\n");
 }
+
+export type ProcessTicketResult =
+  | { outcome: "failed" }
+  | { outcome: "code_review"; ticketId: string; branch: string };
 
 export async function processTicket(options: {
   ticket: Ticket;
@@ -15,7 +20,7 @@ export async function processTicket(options: {
   config: Config;
   logger: Logger;
   executor?: CodeExecutor;
-}): Promise<void> {
+}): Promise<ProcessTicketResult> {
   const { ticket, provider, config, logger } = options;
 
   // Claim the ticket
@@ -27,7 +32,7 @@ export async function processTicket(options: {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });
-    return;
+    return { outcome: "failed" };
   }
 
   const executor = options.executor ?? createExecutor(config.executor.type);
@@ -73,18 +78,20 @@ export async function processTicket(options: {
   // Update final status
   try {
     if (lastResult?.success) {
-      await provider.transitionStatus(ticket.id, config.provider.statuses.done);
+      await provider.transitionStatus(ticket.id, config.provider.statuses.code_review);
 
       const output = lastNLines(lastResult.output ?? "", 50);
       const comment = [
-        "## Agent Worker Completed",
+        "## Agent Worker — In Code Review",
         "",
-        "Task completed successfully.",
+        "Task completed. Awaiting code review.",
         ...(output ? ["", "**Output (last 50 lines):**", "```", output, "```"] : []),
       ].join("\n");
       await provider.postComment(ticket.id, comment);
 
-      logger.info("Ticket completed", { ticketId: ticket.identifier });
+      logger.info("Ticket in code review", { ticketId: ticket.identifier });
+      const branch = buildTaskVars(ticket).branch;
+      return { outcome: "code_review", ticketId: ticket.id, branch };
     } else {
       await provider.transitionStatus(ticket.id, config.provider.statuses.failed);
 
@@ -104,11 +111,13 @@ export async function processTicket(options: {
         ticketId: ticket.identifier,
         stage: lastResult?.stage,
       });
+      return { outcome: "failed" };
     }
   } catch (err) {
     logger.error("Failed to update ticket status", {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });
+    return { outcome: "failed" };
   }
 }

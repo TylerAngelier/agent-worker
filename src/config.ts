@@ -7,7 +7,8 @@ import { z } from "zod/v4";
 const StatusesSchema = z.object({
   ready: z.string(),
   in_progress: z.string(),
-  done: z.string(),
+  code_review: z.string(),
+  verification: z.string(),
   failed: z.string(),
 });
 
@@ -74,12 +75,49 @@ const LogSchema = z.object({
   level: z.enum(["debug", "info", "warn", "error"]).default("info"),
 }).default({ level: "info" });
 
+// --- SCM schemas ---
+
+const GitHubScmSchema = z.object({
+  type: z.literal("github"),
+  owner: z.string(),
+  repo: z.string(),
+});
+
+export type GitHubScmConfig = z.infer<typeof GitHubScmSchema>;
+
+const BitbucketServerScmSchema = z.object({
+  type: z.literal("bitbucket_server"),
+  base_url: z.string(),
+  project: z.string(),
+  repo: z.string(),
+});
+
+export type BitbucketServerScmConfig = z.infer<typeof BitbucketServerScmSchema>;
+
+const ScmSchema = z.discriminatedUnion("type", [
+  GitHubScmSchema,
+  BitbucketServerScmSchema,
+]);
+
+export type ScmConfig = z.infer<typeof ScmSchema>;
+
+// --- Feedback schema ---
+
+const FeedbackSchema = z.object({
+  comment_prefix: z.string().default("/agent"),
+  poll_interval_seconds: z.number().positive().default(120),
+}).default({ comment_prefix: "/agent", poll_interval_seconds: 120 });
+
+export type FeedbackConfig = z.infer<typeof FeedbackSchema>;
+
 const ConfigFileSchema = z.object({
   provider: ProviderSchema,
   repo: RepoSchema,
   hooks: HooksSchema,
   executor: ExecutorSchema,
   log: LogSchema,
+  scm: ScmSchema,
+  feedback: FeedbackSchema,
 });
 
 type ConfigFile = z.infer<typeof ConfigFileSchema>;
@@ -89,18 +127,5 @@ export type Config = ConfigFile;
 export function loadConfig(filePath: string): Config {
   const text = readFileSync(filePath, "utf-8");
   const raw = parseYaml(text) as Record<string, unknown>;
-
-  // Backward compat: old top-level `linear:` key → `provider: { type: "linear", ... }`
-  if (raw.linear && !raw.provider) {
-    raw.provider = { ...(raw.linear as Record<string, unknown>), type: "linear" };
-    delete raw.linear;
-  }
-
-  // Backward compat: old `claude:` key → `executor:` with type "claude"
-  if (raw.claude && !raw.executor) {
-    raw.executor = { ...(raw.claude as Record<string, unknown>), type: "claude" };
-    delete raw.claude;
-  }
-
   return ConfigFileSchema.parse(raw);
 }

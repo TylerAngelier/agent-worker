@@ -1,4 +1,4 @@
-import type { Ticket, TicketProvider } from "./types.ts";
+import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { PlaneProviderConfig } from "../config.ts";
 
 const INITIAL_DELAY_MS = 1000;
@@ -52,6 +52,19 @@ interface PlaneState {
 
 interface PlaneStatesResponse {
   results: PlaneState[];
+}
+
+interface PlaneComment {
+  id: string;
+  created_at: string;
+  comment_html: string;
+  actor: {
+    display_name: string;
+  };
+}
+
+interface PlaneCommentsResponse {
+  results: PlaneComment[];
 }
 
 export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider {
@@ -112,6 +125,24 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
       }));
     },
 
+    async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {
+      const states = await getStates();
+      const target = states.find((s) => s.name === statusName);
+      if (!target) return [];
+
+      const params = new URLSearchParams();
+      params.set("query", `state:${target.id}`);
+      const res = await planeFetch(`/projects/${project_id}/issues/?${params}`);
+      const data = (await res.json()) as PlaneIssuesResponse;
+
+      return data.results.map((issue) => ({
+        id: issue.id,
+        identifier: makeIdentifier(issue),
+        title: issue.name,
+        description: issue.description_html ?? undefined,
+      }));
+    },
+
     async transitionStatus(ticketId: string, statusName: string): Promise<void> {
       const states = await getStates();
       const target = states.find((s) => s.name === statusName);
@@ -130,6 +161,25 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
         method: "POST",
         body: JSON.stringify({ comment_html: body }),
       });
+    },
+
+    async fetchComments(ticketId: string, since?: string): Promise<TicketComment[]> {
+      const res = await planeFetch(`/projects/${project_id}/issues/${ticketId}/comments/`);
+      const data = (await res.json()) as PlaneCommentsResponse;
+
+      let results = data.results.map((c) => ({
+        id: c.id,
+        author: c.actor.display_name,
+        body: c.comment_html,
+        createdAt: c.created_at,
+      }));
+
+      if (since) {
+        const sinceDate = new Date(since);
+        results = results.filter((c) => new Date(c.createdAt) > sinceDate);
+      }
+
+      return results;
     },
   };
 }

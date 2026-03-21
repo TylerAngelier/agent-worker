@@ -2,36 +2,64 @@
 # Copy this file and update with your own values:
 #   cp agent-worker.example.yaml agent-worker.yaml
 
-linear:
-  # Your Linear project UUID (required)
+# --- Provider (required) ---
+# Choose one: linear, jira, or plane
+provider:
+  type: linear
+
+  # Linear-specific fields
+  # Your Linear project UUID (required for linear)
   # Find it in Linear: Settings > Projects > click project > copy ID from URL
   project_id: "your-project-uuid-here"
 
-  # How often to poll Linear for new tickets, in seconds (default: 60)
+  # How often to poll for new tickets, in seconds (default: 60)
   poll_interval_seconds: 60
 
-  # Map your Linear workflow status names to agent lifecycle stages (required)
-  # These must match your Linear team's workflow status names exactly
+  # Map your workflow status names to agent lifecycle stages (required)
+  # These must match your provider's status names exactly
   statuses:
     ready: "Todo"            # Status that marks a ticket as ready for the agent
     in_progress: "In Progress" # Status set when the agent picks up a ticket
     done: "Done"             # Status set when the agent completes a ticket
     failed: "Canceled"       # Status set when the agent fails a ticket
 
+  # --- Jira Server example ---
+  # type: jira
+  # base_url: "https://jira.example.com"
+  # poll_interval_seconds: 60
+  # jql: "project = FOO AND status = 'Todo' AND assignee = currentUser()"
+  # statuses:
+  #   ready: "Todo"
+  #   in_progress: "In Progress"
+  #   done: "Done"
+  #   failed: "Canceled"
+
+  # --- Plane example ---
+  # type: plane
+  # base_url: "https://plane.example.com"
+  # workspace_slug: "my-workspace"
+  # project_id: "your-project-uuid-here"
+  # poll_interval_seconds: 60
+  # query: "state_group: backlog"
+  # statuses:
+  #   ready: "Backlog"
+  #   in_progress: "In Progress"
+  #   done: "Done"
+  #   failed: "Canceled"
+
+# --- Repository (required) ---
 repo:
-  # Absolute path to the git repository the agent works in (required)
+  # Absolute path to the git repository the agent works in
   path: "/path/to/your/repo"
 
+# --- Hooks (optional) ---
 hooks:
-  # Shell commands to run BEFORE the agent is invoked (optional)
+  # Shell commands to run BEFORE the agent is invoked
   # If any command fails, the ticket is marked failed and the agent is not invoked
   # Supports variables: {id} (ticket ID), {title} (slugified title), {branch} (branch name)
-  # Note: When using the Claude executor, a git worktree is created automatically
-  # so you don't need branch/checkout commands in pre-hooks.
-  # Codex manages its own worktrees, so hooks run in the original repo path.
   pre: []
 
-  # Shell commands to run AFTER the agent completes successfully (optional)
+  # Shell commands to run AFTER the agent completes successfully
   # If any command fails, the ticket is marked failed
   post:
     - "git add -A"
@@ -39,8 +67,9 @@ hooks:
     - "git push origin {branch}"
     - "gh pr create --title '{id}: {raw_title}' --body 'Fixes {id}. Implemented by Agent Worker.' --base main"
 
+# --- Executor (optional) ---
 executor:
-  # Agent harness to use: "claude" (default) or "codex"
+  # Agent harness to use: "claude" (default), "codex", "opencode", or "pi"
   type: claude
 
   # Maximum time in seconds for the agent to complete (default: 300)
@@ -49,6 +78,14 @@ executor:
   # Number of retry attempts on failure, 0-3 (default: 0)
   retries: 0
 
+# --- Logging (optional) ---
 log:
   # Path to log file (optional — omit for stdout-only logging)
   file: "./agent-worker.log"
+
+# --- Environment Variables ---
+# Set these in your shell before running agent-worker:
+#
+# Linear:  LINEAR_API_KEY=your-linear-api-key
+# Jira:    JIRA_USERNAME=your-username JIRA_API_TOKEN=your-token
+# Plane:   PLANE_API_KEY=your-plane-api-key

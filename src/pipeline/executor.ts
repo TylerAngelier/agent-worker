@@ -1,6 +1,8 @@
 import type { Logger } from "../logger.ts";
 import { createClaudeExecutor } from "./claude-executor.ts";
 import { createCodexExecutor } from "./codex-executor.ts";
+import { createOpencodeExecutor } from "./opencode-executor.ts";
+import { createPiExecutor } from "./pi-executor.ts";
 
 export type ExecutorResult = {
   success: boolean;
@@ -44,12 +46,16 @@ export async function streamToLines(
   return chunks.join("");
 }
 
-export function createExecutor(type: "claude" | "codex"): CodeExecutor {
+export function createExecutor(type: "claude" | "codex" | "opencode" | "pi"): CodeExecutor {
   switch (type) {
     case "claude":
       return createClaudeExecutor();
     case "codex":
       return createCodexExecutor();
+    case "opencode":
+      return createOpencodeExecutor();
+    case "pi":
+      return createPiExecutor();
     default:
       throw new Error(`Unknown executor type: ${type}`);
   }

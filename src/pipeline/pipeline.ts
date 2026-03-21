@@ -112,7 +112,7 @@ export async function executePipeline(options: {
     }
 
     // Code executor
-    const prompt = `Linear ticket: ${ticket.title}\n\n${ticket.description || "No description provided."}`;
+    const prompt = `Ticket: ${ticket.title}\n\n${ticket.description || "No description provided."}`;
     const execResult = await executor.run(prompt, effectiveCwd, timeoutMs, logger);
     if (!execResult.success) {
       const reason = execResult.timedOut

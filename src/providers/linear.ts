@@ -1,17 +1,11 @@
 import { LinearClient } from "@linear/sdk";
 import type { Ticket, TicketProvider } from "./types.ts";
+import type { LinearProviderConfig } from "../config.ts";
 
 const INITIAL_DELAY_MS = 1000;
 const JITTER_MS = 500;
 const MAX_DELAY_MS = 60000;
 const MAX_BACKOFF_RETRIES = 5;
-
-type StatusMap = {
-  ready: string;
-  in_progress: string;
-  done: string;
-  failed: string;
-};
 
 async function withBackoff<T>(
   fn: () => Promise<T>,
@@ -36,12 +30,13 @@ async function withBackoff<T>(
   throw new Error("Unreachable");
 }
 
-export function createLinearProvider(options: {
-  apiKey: string;
-  projectId: string;
-  statuses: StatusMap;
-}): TicketProvider {
-  const client = new LinearClient({ apiKey: options.apiKey });
+export function createLinearProvider(config: LinearProviderConfig): TicketProvider {
+  const apiKey = process.env.LINEAR_API_KEY;
+  if (!apiKey) {
+    throw new Error("LINEAR_API_KEY environment variable is required for Linear provider");
+  }
+
+  const client = new LinearClient({ apiKey });
   const stateCache = new Map<string, { id: string; name: string }[]>();
 
   async function getTeamStates(teamId: string): Promise<{ id: string; name: string }[]> {
@@ -58,8 +53,8 @@ export function createLinearProvider(options: {
       const issues = await withBackoff(() =>
         client.issues({
           filter: {
-            project: { id: { eq: options.projectId } },
-            state: { name: { eq: options.statuses.ready } },
+            project: { id: { eq: config.project_id } },
+            state: { name: { eq: config.statuses.ready } },
           },
         })
       );

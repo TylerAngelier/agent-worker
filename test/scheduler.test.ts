@@ -21,8 +21,8 @@ const ticket: Ticket = {
 
 function makeConfig(overrides?: Partial<Config>): Config {
   return {
-    apiKey: "test-key",
-    linear: {
+    provider: {
+      type: "linear",
       project_id: "proj-1",
       poll_interval_seconds: 10,
       statuses: {

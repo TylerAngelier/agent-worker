@@ -1,7 +1,7 @@
 import { loadConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
 import { printSplash } from "./format.ts";
-import { createLinearProvider } from "./providers/linear.ts";
+import { createProvider } from "./providers/index.ts";
 import { createPoller } from "./poller.ts";
 import { processTicket } from "./scheduler.ts";
 import { version } from "../package.json";
@@ -31,34 +31,27 @@ function main() {
     process.exit(1);
   }
 
-  printSplash(version);
+  printSplash(`${config.provider.type} → ${config.executor.type}`);
 
   const logger = createLogger({
     level: config.log.level,
     filePath: config.log.file,
-    redact: [config.apiKey],
   });
 
-  const provider = createLinearProvider({
-    apiKey: config.apiKey,
-    projectId: config.linear.project_id,
-    statuses: config.linear.statuses,
-  });
+  const provider = createProvider(config.provider);
 
   const poller = createPoller({
     provider,
-    intervalMs: config.linear.poll_interval_seconds * 1000,
+    intervalMs: config.provider.poll_interval_seconds * 1000,
     logger,
     onTicket: async (ticket) => {
       await processTicket({ ticket, provider, config, logger });
     },
   });
 
-  printSplash(config.executor.type);
-
   logger.info("Agent Worker started", {
-    projectId: config.linear.project_id,
-    pollInterval: config.linear.poll_interval_seconds,
+    provider: config.provider.type,
+    pollInterval: config.provider.poll_interval_seconds,
     executor: config.executor.type,
   });
 

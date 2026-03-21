@@ -20,7 +20,7 @@ export async function processTicket(options: {
 
   // Claim the ticket
   try {
-    await provider.transitionStatus(ticket.id, config.linear.statuses.in_progress);
+    await provider.transitionStatus(ticket.id, config.provider.statuses.in_progress);
     logger.info("Ticket claimed", { ticketId: ticket.identifier });
   } catch (err) {
     logger.warn("Failed to claim ticket", {
@@ -73,7 +73,7 @@ export async function processTicket(options: {
   // Update final status
   try {
     if (lastResult?.success) {
-      await provider.transitionStatus(ticket.id, config.linear.statuses.done);
+      await provider.transitionStatus(ticket.id, config.provider.statuses.done);
 
       const output = lastNLines(lastResult.output ?? "", 50);
       const comment = [
@@ -86,7 +86,7 @@ export async function processTicket(options: {
 
       logger.info("Ticket completed", { ticketId: ticket.identifier });
     } else {
-      await provider.transitionStatus(ticket.id, config.linear.statuses.failed);
+      await provider.transitionStatus(ticket.id, config.provider.statuses.failed);
 
       const errorOutput = lastNLines(lastResult?.error ?? "Unknown error", 50);
       const comment = [

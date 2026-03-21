@@ -14,10 +14,11 @@ TypeScript CLI built with Bun. Polls ticket providers (Linear, Jira, Plane) and 
 When solving a ticket:
 
 1. Write the code to solve the ticket
-2. Run `bun test` and fix any failures
-3. Review your changes for bugs, security issues, and code quality — use CodeRabbit if available
-4. Fix any issues found in the review
-5. Run `bun test` again to confirm fixes didn't break anything
+2. Run `bun typecheck` and fix any type errors
+3. Run `bun test` and fix any failures
+4. Review your changes for bugs, security issues, and code quality — use CodeRabbit if available
+5. Fix any issues found in the review
+6. Run `bun typecheck && bun test` again to confirm fixes didn't break anything
 
 ## Ticket Lifecycle
 

@@ -4,6 +4,30 @@ import { createCodexExecutor } from "./codex-executor.ts";
 import { createOpencodeExecutor } from "./opencode-executor.ts";
 import { createPiExecutor } from "./pi-executor.ts";
 
+/**
+ * Attempts to spawn a process, catching ENOENT (binary not found).
+ * Returns the process on success, or an ExecutorResult describing the failure.
+ */
+export function spawnOrError(
+  command: string[],
+  options: Parameters<typeof Bun.spawn>[1]
+): { proc: ReturnType<typeof Bun.spawn> } | ExecutorResult {
+  try {
+    const proc = Bun.spawn(command, options);
+    return { proc };
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as { code: string }).code === "ENOENT") {
+      return {
+        success: false,
+        output: `Executable not found: ${command[0]}`,
+        timedOut: false,
+        exitCode: null,
+      };
+    }
+    throw err;
+  }
+}
+
 export type ExecutorResult = {
   success: boolean;
   output: string;

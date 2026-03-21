@@ -69,6 +69,7 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
   if (!apiKey) {
     throw new Error("PLANE_API_KEY environment variable is required for Plane provider");
   }
+  const key: string = apiKey;
 
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const { workspace_slug, project_id } = config;
@@ -78,14 +79,19 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
 
   async function planeFetch(path: string, options?: RequestInit): Promise<Response> {
     const url = `${baseUrl}/api/v1/workspaces/${workspace_slug}${path}`;
+    const headers: Record<string, string> = { "x-api-key": key, "Content-Type": "application/json" };
+    const extraHeaders = options?.headers;
+    if (extraHeaders instanceof Headers) {
+      extraHeaders.forEach((value, key) => { headers[key] = value; });
+    } else if (extraHeaders && typeof extraHeaders === "object") {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (typeof value === "string") headers[key] = value;
+      }
+    }
     const res = await withBackoff(() =>
       fetch(url, {
         ...options,
-        headers: {
-          "x-api-key": apiKey,
-          "Content-Type": "application/json",
-          ...options?.headers,
-        },
+        headers,
       })
     );
     if (!res.ok) {
@@ -119,17 +125,23 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
   return {
     async fetchReadyTickets(): Promise<Ticket[]> {
       const identifier = await getProjectIdentifier();
+      const states = await getStates();
+      const readyState = states.find((s) => s.name === config.statuses.ready);
+      const readyStateId = readyState?.id;
+
       const params = new URLSearchParams();
       params.set("query", config.query);
       const res = await planeFetch(`/projects/${project_id}/issues/?${params}`);
       const data = (await res.json()) as PlaneIssuesResponse;
 
-      return data.results.map((issue) => ({
-        id: issue.id,
-        identifier: makeIdentifier(issue, identifier),
-        title: issue.name,
-        description: issue.description_html ?? undefined,
-      }));
+      return data.results
+        .filter((issue) => !readyStateId || issue.state === readyStateId)
+        .map((issue) => ({
+          id: issue.id,
+          identifier: makeIdentifier(issue, identifier),
+          title: issue.name,
+          description: issue.description_html ?? undefined,
+        }));
     },
 
     async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {

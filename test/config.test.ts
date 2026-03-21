@@ -43,8 +43,10 @@ describe("loadConfig", () => {
     const config = loadConfig(writeConfig(minimalProvider));
 
     expect(config.provider.type).toBe("linear");
-    expect(config.provider.project_id).toBe("proj-123");
-    expect(config.provider.poll_interval_seconds).toBe(60);
+    if (config.provider.type === "linear") {
+      expect(config.provider.project_id).toBe("proj-123");
+      expect(config.provider.poll_interval_seconds).toBe(60);
+    }
     expect(config.provider.statuses.ready).toBe("Todo");
     expect(config.provider.statuses.code_review).toBe("Code Review");
     expect(config.provider.statuses.verification).toBe("Verification");

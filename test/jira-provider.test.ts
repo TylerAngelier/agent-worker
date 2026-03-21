@@ -9,10 +9,15 @@ const jiraConfig = {
   statuses: {
     ready: "Todo",
     in_progress: "In Progress",
-    done: "Done",
+    code_review: "Code Review",
+    verification: "Verification",
     failed: "Canceled",
   },
 };
+
+function mockFetch(fn: typeof fetch) {
+  (globalThis as { fetch: typeof fetch }).fetch = fn;
+}
 
 describe("createJiraProvider", () => {
   beforeEach(() => {
@@ -63,21 +68,25 @@ describe("createJiraProvider", () => {
       }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(mockResponse as Response));
+    const originalFetch = globalThis.fetch;
+    mockFetch(mock(() => Promise.resolve(mockResponse as Response)) as unknown as typeof fetch);
 
     const provider = createJiraProvider(jiraConfig);
     const tickets = await provider.fetchReadyTickets();
 
     expect(tickets).toHaveLength(1);
-    expect(tickets[0].id).toBe("10001");
-    expect(tickets[0].identifier).toBe("FOO-42");
-    expect(tickets[0].title).toBe("Fix the bug");
-    expect(tickets[0].description).toBe("Description here");
+    expect(tickets[0]!.id).toBe("10001");
+    expect(tickets[0]!.identifier).toBe("FOO-42");
+    expect(tickets[0]!.title).toBe("Fix the bug");
+    expect(tickets[0]!.description).toBe("Description here");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const calledUrl = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls[0][0] as string;
+    const calls = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
+    const calledUrl = calls[0]![0] as string;
     expect(calledUrl).toContain("jql=");
     expect(calledUrl).toContain("maxResults=1");
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
   test("fetchReadyTickets handles null description", async () => {
@@ -97,12 +106,15 @@ describe("createJiraProvider", () => {
       }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(mockResponse as Response));
+    const originalFetch = globalThis.fetch;
+    mockFetch(mock(() => Promise.resolve(mockResponse as Response)) as unknown as typeof fetch);
 
     const provider = createJiraProvider(jiraConfig);
     const tickets = await provider.fetchReadyTickets();
 
-    expect(tickets[0].description).toBeUndefined();
+    expect(tickets[0]!.description).toBeUndefined();
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
   test("fetchReadyTickets returns empty array when no issues", async () => {
@@ -111,12 +123,15 @@ describe("createJiraProvider", () => {
       json: async () => ({ issues: [] }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(mockResponse as Response));
+    const originalFetch = globalThis.fetch;
+    mockFetch(mock(() => Promise.resolve(mockResponse as Response)) as unknown as typeof fetch);
 
     const provider = createJiraProvider(jiraConfig);
     const tickets = await provider.fetchReadyTickets();
 
     expect(tickets).toEqual([]);
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
   test("transitionStatus finds transition by name and calls POST", async () => {
@@ -135,17 +150,22 @@ describe("createJiraProvider", () => {
       json: async () => ({}),
     };
 
-    globalThis.fetch = mock((url: string, options?: RequestInit) => {
-      if (url.includes("/transitions") && (!options || options.method !== "POST")) {
-        return Promise.resolve(getTransitionsResponse as Response);
-      }
-      return Promise.resolve(postTransitionResponse as Response);
-    });
+    const originalFetch = globalThis.fetch;
+    mockFetch(
+      mock((url: string, options?: RequestInit) => {
+        if (url.includes("/transitions") && (!options || options.method !== "POST")) {
+          return Promise.resolve(getTransitionsResponse as Response);
+        }
+        return Promise.resolve(postTransitionResponse as Response);
+      }) as unknown as typeof fetch
+    );
 
     const provider = createJiraProvider(jiraConfig);
     await provider.transitionStatus("FOO-42", "In Progress");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
   test("transitionStatus throws when transition name not found", async () => {
@@ -158,12 +178,15 @@ describe("createJiraProvider", () => {
       }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(getTransitionsResponse as Response));
+    const originalFetch = globalThis.fetch;
+    mockFetch(mock(() => Promise.resolve(getTransitionsResponse as Response)) as unknown as typeof fetch);
 
     const provider = createJiraProvider(jiraConfig);
     await expect(provider.transitionStatus("FOO-42", "In Progress")).rejects.toThrow(
       'Jira transition "In Progress" not found'
     );
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
   test("postComment calls Jira comment API", async () => {
@@ -172,14 +195,18 @@ describe("createJiraProvider", () => {
       json: async () => ({ id: "comment-1" }),
     };
 
-    globalThis.fetch = mock(() => Promise.resolve(mockResponse as Response));
+    const originalFetch = globalThis.fetch;
+    mockFetch(mock(() => Promise.resolve(mockResponse as Response)) as unknown as typeof fetch);
 
     const provider = createJiraProvider(jiraConfig);
     await provider.postComment("FOO-42", "Test comment");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const call = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
+    const calls = (globalThis.fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls;
+    const call = calls[0]!;
     expect(call[0]).toContain("/issue/FOO-42/comment");
     expect(call[1].method).toBe("POST");
+
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   });
 });

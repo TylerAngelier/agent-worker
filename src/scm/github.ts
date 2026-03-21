@@ -85,10 +85,20 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       const params = new URLSearchParams();
       params.set("per_page", "100");
       if (since) params.set("since", since);
-      const res = await ghFetch(`/pulls/${prNumber}/comments?${params}`);
-      const comments = (await res.json()) as unknown[];
 
-      const results = (Array.isArray(comments) ? comments : []).map((c) => {
+      // Fetch both review comments (inline code comments) and issue comments
+      // (general PR conversation) since /agent feedback can be posted as either.
+      const [reviewRes, issueRes] = await Promise.all([
+        ghFetch(`/pulls/${prNumber}/comments?${params}`),
+        ghFetch(`/issues/${prNumber}/comments?${params}`),
+      ]);
+
+      const [reviewComments, issueComments] = await Promise.all([
+        reviewRes.json() as Promise<unknown>,
+        issueRes.json() as Promise<unknown>,
+      ]);
+
+      const mapComment = (c: unknown): PRComment => {
         const comment = c as Record<string, unknown>;
         const user = comment.user as Record<string, unknown> | undefined;
         return {
@@ -97,9 +107,28 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
           body: comment.body as string,
           createdAt: comment.created_at as string,
         };
+      };
+
+      const reviewResults = (Array.isArray(reviewComments) ? reviewComments : []).map(mapComment);
+      const issueResults = (Array.isArray(issueComments) ? issueComments : []).map(mapComment);
+
+      // Deduplicate by ID (review comments can also appear in issue comments)
+      const seen = new Set<number>();
+      const deduped: PRComment[] = [];
+      for (const c of [...issueResults, ...reviewResults]) {
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          deduped.push(c);
+        }
+      }
+
+      logger.debug("Fetched PR comments", {
+        prNumber,
+        count: deduped.length,
+        reviewCount: reviewResults.length,
+        issueCount: issueResults.length,
       });
-      logger.debug("Fetched PR comments", { prNumber, count: results.length });
-      return results;
+      return deduped;
     },
 
     async isPRMerged(prNumber: number): Promise<boolean> {

@@ -24,6 +24,8 @@ export interface PRComment {
   body: string;
   /** ISO 8601 timestamp of when the comment was created. */
   createdAt: string;
+  /** Whether this comment is an issue-level comment or a review (inline code) comment. */
+  commentType: "issue" | "review";
 }
 
 /** Metadata about a PR's merge commit. */
@@ -68,4 +70,29 @@ export interface ScmProvider {
    * @returns Merge info if the PR was merged, or `null` otherwise.
    */
   getPRMergeInfo(prNumber: number): Promise<MergeInfo | null>;
+
+  /**
+   * Checks whether a specific reaction has been added to a comment.
+   * @param commentId - The comment ID.
+   * @param commentType - Whether the comment is an issue-level or review-level comment.
+   * @param reaction - The reaction content string (e.g. "eyes", "thumbs_up").
+   */
+  hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<boolean>;
+
+  /**
+   * Adds a reaction to a comment (best-effort).
+   * @param commentId - The comment ID.
+   * @param commentType - Whether the comment is an issue-level or review-level comment.
+   * @param reaction - The reaction content string (e.g. "eyes", "thumbs_up").
+   */
+  addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<void>;
+
+  /**
+   * Replies to a comment on a pull request.
+   * @param prNumber - The PR number.
+   * @param commentId - The comment ID to reply to.
+   * @param commentType - Whether the comment is an issue-level or review-level comment.
+   * @param body - The reply body text.
+   */
+  replyToComment(prNumber: number, commentId: number, commentType: "issue" | "review", body: string): Promise<void>;
 }

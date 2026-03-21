@@ -1,3 +1,6 @@
+/**
+ * @module src/providers/jira — Jira ticket provider implementation using REST API v2.
+ */
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { JiraProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
@@ -7,6 +10,18 @@ const JITTER_MS = 500;
 const MAX_DELAY_MS = 60000;
 const MAX_BACKOFF_RETRIES = 5;
 
+/**
+ * Retries an async operation with exponential backoff and jitter on rate-limit errors.
+ *
+ * Retries when the error message contains "429" or "ratelimit".
+ * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
+ *
+ * @typeParam T - Return type of the async operation.
+ * @param fn - The async operation to retry.
+ * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
+ * @returns The result of `fn` on the first successful attempt.
+ * @throws The last error encountered after all retries are exhausted.
+ */
 async function withBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = MAX_BACKOFF_RETRIES
@@ -31,10 +46,12 @@ async function withBackoff<T>(
   throw new Error("Unreachable");
 }
 
+/** Jira search API response shape for issue queries. */
 interface JiraSearchResponse {
   issues: JiraIssue[];
 }
 
+/** Individual issue returned by the Jira search API. */
 interface JiraIssue {
   id: string;
   key: string;
@@ -44,10 +61,12 @@ interface JiraIssue {
   };
 }
 
+/** Jira available transitions response shape. */
 interface JiraTransitionsResponse {
   transitions: { id: string; name: string }[];
 }
 
+/** Jira comment with author display information. */
 interface JiraComment {
   id: string;
   author: { name: string; displayName: string };
@@ -55,10 +74,22 @@ interface JiraComment {
   created: string;
 }
 
+/** Paginated Jira comments response shape. */
 interface JiraCommentsResponse {
   comments: JiraComment[];
 }
 
+/**
+ * Creates a Jira ticket provider using the Jira REST API v2 with HTTP Basic auth.
+ *
+ * Requires the `JIRA_USERNAME` and `JIRA_API_TOKEN` environment variables.
+ * The provider uses the configured `jql` query to fetch ready tickets and
+ * dynamically replaces the status clause for status-based queries.
+ *
+ * @param config - Provider configuration including `base_url`, `jql`, and status name mappings.
+ * @returns A {@link TicketProvider} instance.
+ * @throws Error if `JIRA_USERNAME` or `JIRA_API_TOKEN` is not set in the environment.
+ */
 export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
   const logger = log.child("jira");
   const username = process.env.JIRA_USERNAME;
@@ -70,6 +101,18 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const authHeader = "Basic " + btoa(`${username}:${apiToken}`);
 
+  /**
+   * Wrapper around `fetch()` for the Jira REST API.
+   *
+   * Injects HTTP Basic auth headers and `Content-Type: application/json`,
+   * logs request/response details at debug level, and throws on non-OK responses.
+   * All requests are automatically retried with backoff on rate-limit errors.
+   *
+   * @param path - API path relative to `/rest/api/2` (e.g. `/search`).
+   * @param options - Standard `fetch` options; headers are merged with auth defaults.
+   * @returns The parsed `Response` object.
+   * @throws Error with status code and response body on non-OK HTTP status.
+   */
   async function jiraFetch(path: string, options?: RequestInit): Promise<Response> {
     const url = `${baseUrl}/rest/api/2${path}`;
     logger.debug("Jira API request", { method: options?.method ?? "GET", path });

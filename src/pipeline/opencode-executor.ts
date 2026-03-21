@@ -1,7 +1,17 @@
+/** @module src/pipeline/opencode-executor — OpenCode executor implementation */
+
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates an OpenCode executor.
+ *
+ * Uses `opencode -p <prompt>`.
+ * Requires an isolated worktree (`needsWorktree: true`).
+ *
+ * @returns {@link CodeExecutor} configured for OpenCode
+ */
 export function createOpencodeExecutor(): CodeExecutor {
   return {
     name: "opencode",

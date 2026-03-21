@@ -1,3 +1,6 @@
+/**
+ * @module src/providers/linear — Linear ticket provider implementation using the Linear SDK.
+ */
 import { LinearClient } from "@linear/sdk";
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { LinearProviderConfig } from "../config.ts";
@@ -8,6 +11,18 @@ const JITTER_MS = 500;
 const MAX_DELAY_MS = 60000;
 const MAX_BACKOFF_RETRIES = 5;
 
+/**
+ * Retries an async operation with exponential backoff and jitter on rate-limit errors.
+ *
+ * Retries when the error message contains "429" or "ratelimit".
+ * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
+ *
+ * @typeParam T - Return type of the async operation.
+ * @param fn - The async operation to retry.
+ * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
+ * @returns The result of `fn` on the first successful attempt.
+ * @throws The last error encountered after all retries are exhausted.
+ */
 async function withBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = MAX_BACKOFF_RETRIES
@@ -32,6 +47,17 @@ async function withBackoff<T>(
   throw new Error("Unreachable");
 }
 
+/**
+ * Creates a Linear ticket provider backed by the Linear GraphQL SDK.
+ *
+ * Requires the `LINEAR_API_KEY` environment variable. Workflow states are
+ * fetched lazily and cached per team to avoid repeated API calls during
+ * status transitions.
+ *
+ * @param config - Provider configuration including `project_id` and status name mappings.
+ * @returns A {@link TicketProvider} instance.
+ * @throws Error if `LINEAR_API_KEY` is not set in the environment.
+ */
 export function createLinearProvider(config: LinearProviderConfig): TicketProvider {
   const logger = log.child("linear");
   const apiKey = process.env.LINEAR_API_KEY;
@@ -42,6 +68,15 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
   const client = new LinearClient({ apiKey });
   const stateCache = new Map<string, { id: string; name: string }[]>();
 
+  /**
+   * Fetches and caches workflow states for a Linear team.
+   *
+   * Results are cached in-memory by team ID so subsequent calls for the same
+   * team return instantly without additional API requests.
+   *
+   * @param teamId - The Linear team UUID.
+   * @returns Array of `{ id, name }` objects representing the team's workflow states.
+   */
   async function getTeamStates(teamId: string): Promise<{ id: string; name: string }[]> {
     if (stateCache.has(teamId)) return stateCache.get(teamId)!;
     logger.debug("Fetching team states", { teamId });

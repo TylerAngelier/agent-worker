@@ -1,7 +1,18 @@
+/** @module src/pipeline/codex-executor — OpenAI Codex executor implementation */
+
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates an OpenAI Codex executor.
+ *
+ * Uses `codex exec --full-auto <prompt>`.
+ * Does NOT require a worktree (`needsWorktree: false`) because Codex
+ * manages its own git isolation internally.
+ *
+ * @returns {@link CodeExecutor} configured for Codex
+ */
 export function createCodexExecutor(): CodeExecutor {
   return {
     name: "codex",

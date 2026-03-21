@@ -1,7 +1,17 @@
+/**
+ * @module src/scm/bitbucket-server — Bitbucket Server SCM provider (REST API v1)
+ */
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { BitbucketServerScmConfig } from "../config.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates a Bitbucket Server SCM provider using REST API v1.
+ * Requires the BITBUCKET_TOKEN environment variable. Uses Bearer token auth.
+ * @param config - Bitbucket Server SCM config containing base_url, project, and repo
+ * @returns ScmProvider instance
+ * @throws Error if BITBUCKET_TOKEN environment variable is not set
+ */
 export function createBitbucketServerProvider(config: BitbucketServerScmConfig): ScmProvider {
   const logger = log.child("bitbucket");
   const token = process.env.BITBUCKET_TOKEN;
@@ -12,6 +22,13 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const { project, repo } = config;
 
+  /**
+   * Wrapper for Bitbucket Server API requests.
+   * Injects auth header. Logs request/response timing.
+   * @param path - API path appended to /rest/api/1.0
+   * @returns Fetch Response
+   * @throws Error on non-OK status
+   */
   async function bbFetch(path: string): Promise<Response> {
     const url = `${baseUrl}/rest/api/1.0${path}`;
     logger.debug("Bitbucket API request", { path });

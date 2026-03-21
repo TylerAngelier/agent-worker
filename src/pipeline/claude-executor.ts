@@ -1,7 +1,18 @@
+/** @module src/pipeline/claude-executor — Claude Code executor implementation */
+
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates a Claude Code executor.
+ *
+ * Uses `claude --print --dangerously-skip-permissions -p <prompt>`.
+ * Requires an isolated worktree (`needsWorktree: true`) since Claude
+ * operates on the filesystem directly.
+ *
+ * @returns {@link CodeExecutor} configured for Claude Code
+ */
 export function createClaudeExecutor(): CodeExecutor {
   return {
     name: "claude",

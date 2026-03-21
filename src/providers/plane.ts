@@ -1,3 +1,6 @@
+/**
+ * @module src/providers/plane — Plane ticket provider implementation using REST API v1.
+ */
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { PlaneProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
@@ -7,6 +10,18 @@ const JITTER_MS = 500;
 const MAX_DELAY_MS = 60000;
 const MAX_BACKOFF_RETRIES = 5;
 
+/**
+ * Retries an async operation with exponential backoff and jitter on rate-limit errors.
+ *
+ * Retries when the error message contains "429" or "ratelimit".
+ * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
+ *
+ * @typeParam T - Return type of the async operation.
+ * @param fn - The async operation to retry.
+ * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
+ * @returns The result of `fn` on the first successful attempt.
+ * @throws The last error encountered after all retries are exhausted.
+ */
 async function withBackoff<T>(
   fn: () => Promise<T>,
   maxRetries: number = MAX_BACKOFF_RETRIES
@@ -31,6 +46,7 @@ async function withBackoff<T>(
   throw new Error("Unreachable");
 }
 
+/** Plane API issue shape. */
 interface PlaneIssue {
   id: string;
   sequence_id: number;
@@ -39,20 +55,24 @@ interface PlaneIssue {
   state: string;
 }
 
+/** Plane paginated issues response shape. */
 interface PlaneIssuesResponse {
   results: PlaneIssue[];
 }
 
+/** Plane workflow state shape. */
 interface PlaneState {
   id: string;
   name: string;
   group: string;
 }
 
+/** Plane paginated states response shape. */
 interface PlaneStatesResponse {
   results: PlaneState[];
 }
 
+/** Plane comment with actor display name. */
 interface PlaneComment {
   id: string;
   created_at: string;
@@ -62,10 +82,22 @@ interface PlaneComment {
   };
 }
 
+/** Plane paginated comments response shape. */
 interface PlaneCommentsResponse {
   results: PlaneComment[];
 }
 
+/**
+ * Creates a Plane ticket provider using the Plane REST API v1 with `x-api-key` auth.
+ *
+ * Requires the `PLANE_API_KEY` environment variable. Workflow states and the
+ * project identifier are fetched lazily and cached in-memory to avoid redundant
+ * API calls.
+ *
+ * @param config - Provider configuration including `base_url`, `workspace_slug`, `project_id`, `query`, and status name mappings.
+ * @returns A {@link TicketProvider} instance.
+ * @throws Error if `PLANE_API_KEY` is not set in the environment.
+ */
 export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider {
   const logger = log.child("plane");
   const apiKey = process.env.PLANE_API_KEY;
@@ -80,6 +112,18 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
   const stateCache = new Map<string, PlaneState[]>();
   let projectIdentifier: string | undefined;
 
+  /**
+   * Wrapper around `fetch()` for the Plane REST API.
+   *
+   * Injects the `x-api-key` header and `Content-Type: application/json`,
+   * logs request/response details at debug level, and throws on non-OK responses.
+   * All requests are automatically retried with backoff on rate-limit errors.
+   *
+   * @param path - API path relative to `/api/v1/workspaces/{workspace_slug}`.
+   * @param options - Standard `fetch` options; headers are merged with auth defaults.
+   * @returns The parsed `Response` object.
+   * @throws Error with status code and response body on non-OK HTTP status.
+   */
   async function planeFetch(path: string, options?: RequestInit): Promise<Response> {
     const url = `${baseUrl}/api/v1/workspaces/${workspace_slug}${path}`;
     logger.debug("Plane API request", { method: options?.method ?? "GET", path });
@@ -107,6 +151,14 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
     return res;
   }
 
+  /**
+   * Fetches and caches project workflow states.
+   *
+   * Results are cached in-memory by project ID so subsequent calls return
+   * instantly without additional API requests.
+   *
+   * @returns Array of {@link PlaneState} objects for the configured project.
+   */
   async function getStates(): Promise<PlaneState[]> {
     if (stateCache.has(project_id)) return stateCache.get(project_id)!;
     logger.debug("Fetching project states", { projectId: project_id });
@@ -118,6 +170,14 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
     return states;
   }
 
+  /**
+   * Fetches and caches the project's short identifier (e.g. "ENG").
+   *
+   * Used to build human-readable issue identifiers like "ENG-42".
+   * Cached after the first fetch.
+   *
+   * @returns The project's short identifier string.
+   */
   async function getProjectIdentifier(): Promise<string> {
     if (projectIdentifier) return projectIdentifier;
     logger.debug("Fetching project identifier", { projectId: project_id });
@@ -127,6 +187,13 @@ export function createPlaneProvider(config: PlaneProviderConfig): TicketProvider
     return projectIdentifier;
   }
 
+  /**
+   * Constructs a human-readable issue identifier from a project prefix and sequence number.
+   *
+   * @param issue - The Plane issue object containing the `sequence_id`.
+   * @param identifier - The project's short identifier (e.g. "ENG").
+   * @returns A formatted identifier string like "ENG-42".
+   */
   function makeIdentifier(issue: PlaneIssue, identifier: string): string {
     return `${identifier}-${issue.sequence_id}`;
   }

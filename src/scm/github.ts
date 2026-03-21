@@ -1,9 +1,19 @@
+/**
+ * @module src/scm/github — GitHub SCM provider (REST API v3)
+ */
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { GitHubScmConfig } from "../config.ts";
 import { log } from "../logger.ts";
 
 const GITHUB_API = "https://api.github.com";
 
+/**
+ * Creates a GitHub SCM provider using the REST API v3.
+ * Requires the GITHUB_TOKEN environment variable. Uses Bearer token auth.
+ * @param config - GitHub SCM config containing owner and repo
+ * @returns ScmProvider instance
+ * @throws Error if GITHUB_TOKEN environment variable is not set
+ */
 export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
   const logger = log.child("github");
   const token = process.env.GITHUB_TOKEN;
@@ -13,6 +23,13 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
 
   const { owner, repo } = config;
 
+  /**
+   * Wrapper for GitHub API requests.
+   * Injects auth, User-Agent, and Accept headers. Logs request/response timing.
+   * @param path - API path appended to repos/{owner}/{repo}
+   * @returns Fetch Response
+   * @throws Error on non-OK status (204 is allowed)
+   */
   async function ghFetch(path: string): Promise<Response> {
     const url = `${GITHUB_API}/repos/${owner}/${repo}${path}`;
     logger.debug("GitHub API request", { path });

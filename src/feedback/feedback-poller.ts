@@ -1,3 +1,5 @@
+/** @module src/feedback/feedback-poller — Long-running poll loop that monitors PRs for merge events and actionable review feedback */
+
 import type { Config } from "../config.ts";
 import type { TicketProvider } from "../providers/types.ts";
 import type { ScmProvider } from "../scm/types.ts";
@@ -6,6 +8,22 @@ import { findActionableComments, type FeedbackEvent } from "./comment-filter.ts"
 import { processFeedback } from "./feedback-handler.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates a long-running poller that monitors tickets in "code_review" status.
+ *
+ * For each tracked ticket, on every poll cycle the poller:
+ * 1. Discovers the PR by branch name if not yet known.
+ * 2. Checks if the PR has been merged — if so, transitions the ticket to "verification".
+ * 3. Fetches new PR and ticket comments matching the configured comment prefix.
+ * 4. Dispatches actionable feedback to {@link processFeedback}.
+ *
+ * @param options - Poller configuration.
+ * @param options.provider - Ticket provider for fetching tickets, comments, and transitioning statuses.
+ * @param options.scm - SCM provider for finding PRs, checking merge status, and fetching PR comments.
+ * @param options.prTracker - In-memory store mapping ticket IDs to their tracked PR metadata.
+ * @param options.config - Full application configuration (poll interval, statuses, comment prefix, etc.).
+ * @returns An object with `start()` and `stop()` methods for lifecycle control.
+ */
 export function createFeedbackPoller(options: {
   provider: TicketProvider;
   scm: ScmProvider;
@@ -23,6 +41,12 @@ export function createFeedbackPoller(options: {
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
 
+  /**
+   * Internal helper that sleeps for the specified duration but can be interrupted
+   * early via the `wakeSleep` closure variable set by this function.
+   * @param ms - Number of milliseconds to sleep.
+   * @returns A promise that resolves when the timer fires or is interrupted.
+   */
   function interruptibleSleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -37,6 +61,12 @@ export function createFeedbackPoller(options: {
     });
   }
 
+  /**
+   * Internal helper that looks up the tracked PR info for a ticket and delegates
+   * to {@link processFeedback} with the assembled options.
+   * @param ticket - The ticket to process feedback for.
+   * @param comment - The actionable feedback event to address.
+   */
   async function processActionableFeedback(
     ticket: Awaited<ReturnType<TicketProvider["fetchTicketsByStatus"]>>[number],
     comment: FeedbackEvent,

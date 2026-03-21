@@ -105,6 +105,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
             author: (author.displayName as string) ?? (author.name as string) ?? "unknown",
             body: comment.text as string,
             createdAt: a.createdDate as string,
+            commentType: "issue" as const,
           };
         });
       logger.debug("Fetched PR comments", { prNumber, count: results.length });
@@ -166,6 +167,19 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
         });
         return null;
       }
+    },
+
+    async hasCommentReaction(_commentId: number, _commentType: "issue" | "review", _reaction: string): Promise<boolean> {
+      return false;
+    },
+
+    async addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<void> {
+      logger.debug("Bitbucket Server does not support comment reactions, skipping", { commentId, commentType, reaction });
+    },
+
+    async replyToComment(prNumber: number, commentId: number, commentType: "issue" | "review", body: string): Promise<void> {
+      logger.debug("Bitbucket Server does not support comment replies, skipping", { prNumber, commentId, commentType });
+      void body;
     },
   };
 }

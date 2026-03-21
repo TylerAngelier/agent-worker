@@ -143,7 +143,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       const reviewResults = (Array.isArray(reviewComments) ? reviewComments : []).map((c) => mapComment(c, "review"));
       const issueResults = (Array.isArray(issueComments) ? issueComments : []).map((c) => mapComment(c, "issue"));
 
-      // Deduplicate by ID (review comments can also appear in issue comments)
+      // Deduplicate by ID (safety net for overlapping fetches)
       const seen = new Set<number>();
       const deduped: PRComment[] = [];
       for (const c of [...issueResults, ...reviewResults]) {

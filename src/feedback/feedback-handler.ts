@@ -20,8 +20,8 @@ import { log } from "../logger.ts";
 async function getHeadSha(cwd: string): Promise<string> {
   try {
     const proc = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "pipe" });
-    const output = await new Response(proc.stdout).text();
     await proc.exited;
+    const output = await new Response(proc.stdout).text();
     return output.trim() || "unknown";
   } catch {
     return "unknown";
@@ -107,7 +107,6 @@ export async function processFeedback(options: {
   executor?: CodeExecutor;
 }): Promise<void> {
   const { ticket, comment, pr, config, provider, scm, prTracker } = options;
-  const isScmComment = comment.commentType === "issue" || comment.commentType === "review";
 
   let executor = options.executor;
   if (!executor) {

@@ -194,8 +194,12 @@ export function createFeedbackPoller(options: {
             let actionableComments: FeedbackEvent[] = [];
             try {
               const prComments = await scm.getPRComments(current.prNumber, current.lastCommentCheck);
+              const issuePrComments = prComments.filter(c => c.commentType === "issue");
+              const reviewPrComments = prComments.filter(c => c.commentType === "review");
+
               actionableComments = actionableComments.concat(
-                findActionableComments(prComments, prefix, undefined, "issue").map((c) => ({ ...c, source: "pr" as const }))
+                findActionableComments(issuePrComments, prefix, undefined, "issue").map((c) => ({ ...c, source: "pr" as const })),
+                findActionableComments(reviewPrComments, prefix, undefined, "review").map((c) => ({ ...c, source: "pr" as const })),
               );
             } catch (err) {
               log.debug("Failed to fetch PR comments", {

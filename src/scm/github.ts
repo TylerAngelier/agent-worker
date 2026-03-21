@@ -1,11 +1,11 @@
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { GitHubScmConfig } from "../config.ts";
-import type { Logger } from "../logger.ts";
+import { log } from "../logger.ts";
 
 const GITHUB_API = "https://api.github.com";
 
-export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): ScmProvider {
-  const log = logger?.child("github");
+export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
+  const logger = log.child("github");
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     throw new Error("GITHUB_TOKEN environment variable is required for GitHub SCM provider");
@@ -15,7 +15,7 @@ export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): 
 
   async function ghFetch(path: string): Promise<Response> {
     const url = `${GITHUB_API}/repos/${owner}/${repo}${path}`;
-    log?.debug("GitHub API request", { path });
+    logger.debug("GitHub API request", { path });
     const start = Date.now();
     const res = await fetch(url, {
       headers: {
@@ -24,7 +24,7 @@ export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): 
         "User-Agent": "agent-worker",
       },
     });
-    log?.debug("GitHub API response", { path, status: res.status, durationMs: Date.now() - start });
+    logger.debug("GitHub API response", { path, status: res.status, durationMs: Date.now() - start });
     if (!res.ok && res.status !== 204) {
       const text = await res.text().catch(() => "");
       throw new Error(`GitHub API error ${res.status}: ${text}`);
@@ -34,17 +34,17 @@ export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): 
 
   return {
     async findPullRequest(branch: string): Promise<PullRequest | null> {
-      log?.debug("Finding pull request", { branch });
+      logger.debug("Finding pull request", { branch });
       const res = await ghFetch(`/pulls?head=${owner}:${encodeURIComponent(branch)}&state=open&per_page=1`);
       const prs = (await res.json()) as unknown[];
 
       if (!Array.isArray(prs) || prs.length === 0) {
-        log?.debug("No pull request found", { branch });
+        logger.debug("No pull request found", { branch });
         return null;
       }
 
       const pr = prs[0] as Record<string, unknown>;
-      log?.debug("Found pull request", { branch, prNumber: pr.number });
+      logger.debug("Found pull request", { branch, prNumber: pr.number });
       return {
         number: pr.number as number,
         url: pr.html_url as string,
@@ -54,7 +54,7 @@ export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): 
     },
 
     async getPRComments(prNumber: number, since?: string): Promise<PRComment[]> {
-      log?.debug("Fetching PR comments", { prNumber, since });
+      logger.debug("Fetching PR comments", { prNumber, since });
       const params = new URLSearchParams();
       params.set("per_page", "100");
       if (since) params.set("since", since);
@@ -71,19 +71,19 @@ export function createGitHubProvider(config: GitHubScmConfig, logger?: Logger): 
           createdAt: comment.created_at as string,
         };
       });
-      log?.debug("Fetched PR comments", { prNumber, count: results.length });
+      logger.debug("Fetched PR comments", { prNumber, count: results.length });
       return results;
     },
 
     async isPRMerged(prNumber: number): Promise<boolean> {
-      log?.debug("Checking if PR is merged", { prNumber });
+      logger.debug("Checking if PR is merged", { prNumber });
       try {
         const res = await ghFetch(`/pulls/${prNumber}/merge`);
         const merged = res.status === 204;
-        log?.debug("PR merge check", { prNumber, merged });
+        logger.debug("PR merge check", { prNumber, merged });
         return merged;
       } catch {
-        log?.debug("PR merge check failed", { prNumber, merged: false });
+        logger.debug("PR merge check failed", { prNumber, merged: false });
         return false;
       }
     },

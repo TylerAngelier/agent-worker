@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { createLogger, type LogLevel } from "./logger.ts";
+import { initLogger, log, type LogLevel } from "./logger.ts";
 import { printSplash } from "./format.ts";
 import { createProvider } from "./providers/index.ts";
 import { createPoller } from "./poller.ts";
@@ -40,22 +40,21 @@ function main() {
 
   printSplash(`${config.provider.type} → ${config.executor.type}${debugFlag ? " (debug)" : ""}`);
 
-  const logger = createLogger({
+  initLogger({
     level: logLevel,
     filePath: config.log.file,
     redact: config.log.redact.length > 0 ? config.log.redact : undefined,
   });
 
-  const provider = createProvider(config.provider, logger);
-  const scmProvider = createScmProvider(config.scm, logger);
+  const provider = createProvider(config.provider);
+  const scmProvider = createScmProvider(config.scm);
   const prTracker = createPRTracker();
 
   const poller = createPoller({
     provider,
     intervalMs: config.provider.poll_interval_seconds * 1000,
-    logger,
     onTicket: async (ticket) => {
-      const result = await processTicket({ ticket, provider, config, logger });
+      const result = await processTicket({ ticket, provider, config });
 
       if (result.outcome === "code_review") {
         prTracker.track({
@@ -74,22 +73,21 @@ function main() {
     scm: scmProvider,
     prTracker,
     config,
-    logger,
   });
 
-  logger.info("Agent Worker started", {
+  log.info("Agent Worker started", {
     provider: config.provider.type,
     pollInterval: config.provider.poll_interval_seconds,
     executor: config.executor.type,
   });
 
   process.on("SIGINT", () => {
-    logger.info("Shutting down", { signal: "SIGINT" });
+    log.info("Shutting down", { signal: "SIGINT" });
     poller.stop();
     feedbackPoller.stop();
   });
   process.on("SIGTERM", () => {
-    logger.info("Shutting down", { signal: "SIGTERM" });
+    log.info("Shutting down", { signal: "SIGTERM" });
     poller.stop();
     feedbackPoller.stop();
   });
@@ -97,7 +95,7 @@ function main() {
   poller.start().then(() => {
     process.exit(0);
   }).catch((err) => {
-    logger.error("Fatal error", {
+    log.error("Fatal error", {
       error: err instanceof Error ? err.message : String(err),
     });
     process.exit(1);

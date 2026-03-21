@@ -1,9 +1,9 @@
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { BitbucketServerScmConfig } from "../config.ts";
-import type { Logger } from "../logger.ts";
+import { log } from "../logger.ts";
 
-export function createBitbucketServerProvider(config: BitbucketServerScmConfig, logger?: Logger): ScmProvider {
-  const log = logger?.child("bitbucket");
+export function createBitbucketServerProvider(config: BitbucketServerScmConfig): ScmProvider {
+  const logger = log.child("bitbucket");
   const token = process.env.BITBUCKET_TOKEN;
   if (!token) {
     throw new Error("BITBUCKET_TOKEN environment variable is required for BitBucket Server SCM provider");
@@ -14,7 +14,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
 
   async function bbFetch(path: string): Promise<Response> {
     const url = `${baseUrl}/rest/api/1.0${path}`;
-    log?.debug("Bitbucket API request", { path });
+    logger.debug("Bitbucket API request", { path });
     const start = Date.now();
     const res = await fetch(url, {
       headers: {
@@ -22,7 +22,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
         "Content-Type": "application/json",
       },
     });
-    log?.debug("Bitbucket API response", { path, status: res.status, durationMs: Date.now() - start });
+    logger.debug("Bitbucket API response", { path, status: res.status, durationMs: Date.now() - start });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`BitBucket Server API error ${res.status}: ${text}`);
@@ -32,7 +32,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
 
   return {
     async findPullRequest(branch: string): Promise<PullRequest | null> {
-      log?.debug("Finding pull request", { branch });
+      logger.debug("Finding pull request", { branch });
       const res = await bbFetch(
         `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests?at=refs/heads/${encodeURIComponent(branch)}&state=OPEN&limit=1`
       );
@@ -40,12 +40,12 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
       const values = data.values as Record<string, unknown>[] | undefined;
 
       if (!Array.isArray(values) || values.length === 0) {
-        log?.debug("No pull request found", { branch });
+        logger.debug("No pull request found", { branch });
         return null;
       }
 
       const pr = values[0]!;
-      log?.debug("Found pull request", { branch, prNumber: pr.id });
+      logger.debug("Found pull request", { branch, prNumber: pr.id });
       return {
         number: pr.id as number,
         url: `${baseUrl}/projects/${project}/repos/${repo}/pull-requests/${pr.id}`,
@@ -55,7 +55,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
     },
 
     async getPRComments(prNumber: number, since?: string): Promise<PRComment[]> {
-      log?.debug("Fetching PR comments", { prNumber, since });
+      logger.debug("Fetching PR comments", { prNumber, since });
       const res = await bbFetch(
         `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/activities?limit=100`
       );
@@ -81,22 +81,22 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig, 
             createdAt: a.createdDate as string,
           };
         });
-      log?.debug("Fetched PR comments", { prNumber, count: results.length });
+      logger.debug("Fetched PR comments", { prNumber, count: results.length });
       return results;
     },
 
     async isPRMerged(prNumber: number): Promise<boolean> {
-      log?.debug("Checking if PR is merged", { prNumber });
+      logger.debug("Checking if PR is merged", { prNumber });
       try {
         const res = await bbFetch(
           `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}`
         );
         const data = (await res.json()) as Record<string, unknown>;
         const merged = data.state === "MERGED";
-        log?.debug("PR merge check", { prNumber, merged });
+        logger.debug("PR merge check", { prNumber, merged });
         return merged;
       } catch {
-        log?.debug("PR merge check failed", { prNumber, merged: false });
+        logger.debug("PR merge check failed", { prNumber, merged: false });
         return false;
       }
     },

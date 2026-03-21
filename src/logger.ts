@@ -18,14 +18,14 @@ export interface Logger {
   child(component: string): Logger;
 }
 
-export async function time<T>(logger: Logger, label: string, fn: () => Promise<T>): Promise<T> {
+export async function time<T>(label: string, fn: () => Promise<T>): Promise<T> {
   const start = Date.now();
   try {
     const result = await fn();
-    logger.debug(`${label} completed`, { durationMs: Date.now() - start });
+    log.debug(`${label} completed`, { durationMs: Date.now() - start });
     return result;
   } catch (err) {
-    logger.debug(`${label} failed`, {
+    log.debug(`${label} failed`, {
       durationMs: Date.now() - start,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -33,7 +33,7 @@ export async function time<T>(logger: Logger, label: string, fn: () => Promise<T
   }
 }
 
-export function createLogger(options: {
+function createLoggerInternal(options: {
   level?: LogLevel;
   filePath?: string;
   redact?: string[];
@@ -94,7 +94,7 @@ export function createLogger(options: {
   }
 
   function child(sub: string): Logger {
-    return createLogger({
+    return createLoggerInternal({
       ...options,
       component: component ? `${component}:${sub}` : sub,
     });
@@ -107,4 +107,45 @@ export function createLogger(options: {
     error: (msg, ctx?) => write("error", msg, ctx),
     child,
   };
+}
+
+/**
+ * No-op logger used as the default before `initLogger()` is called.
+ * Prevents crashes if a provider or SCM module is imported during testing
+ * before the test setup has called `initLogger()`.
+ */
+const noopLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  child: () => noopLogger,
+};
+
+/**
+ * Module-level singleton logger. Initialized once at startup via `initLogger()`.
+ * Falls back to a no-op logger so that imports don't crash before init.
+ */
+export let log: Logger = noopLogger;
+
+/** Initialize the global logger. Call once at startup. */
+export function initLogger(options: {
+  level?: LogLevel;
+  filePath?: string;
+  redact?: string[];
+}): void {
+  log = createLoggerInternal(options);
+}
+
+/**
+ * Create a standalone logger (useful in tests that need a specific config
+ * without mutating the global singleton).
+ */
+export function createLogger(options: {
+  level?: LogLevel;
+  filePath?: string;
+  redact?: string[];
+  component?: string;
+}): Logger {
+  return createLoggerInternal(options);
 }

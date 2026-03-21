@@ -68,4 +68,34 @@ describe("findActionableComments", () => {
     const result = findActionableComments(comments, "/agent");
     expect(result).toHaveLength(0);
   });
+
+  test("defaults commentType to 'ticket'", () => {
+    const comments = [
+      { id: "1", author: "alice", body: "/agent fix this", createdAt: "2026-01-01T00:00:00Z" },
+    ];
+
+    const result = findActionableComments(comments, "/agent");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.commentType).toBe("ticket");
+  });
+
+  test("passes through specified commentType", () => {
+    const comments = [
+      { id: "1", author: "alice", body: "/agent fix this", createdAt: "2026-01-01T00:00:00Z" },
+    ];
+
+    const result = findActionableComments(comments, "/agent", undefined, "issue");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.commentType).toBe("issue");
+  });
+
+  test("supports review commentType", () => {
+    const comments = [
+      { id: "1", author: "alice", body: "/agent fix this", createdAt: "2026-01-01T00:00:00Z" },
+    ];
+
+    const result = findActionableComments(comments, "/agent", undefined, "review");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.commentType).toBe("review");
+  });
 });

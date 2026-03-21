@@ -170,4 +170,48 @@ describe("BitBucket Server SCM Provider", () => {
       expect(result!.summary).toBe("fix: correct typo");
     });
   });
+
+  describe("hasCommentReaction", () => {
+    test("always returns false", async () => {
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      expect(await provider.hasCommentReaction(1, "issue", "eyes")).toBe(false);
+      expect(await provider.hasCommentReaction(2, "review", "eyes")).toBe(false);
+    });
+  });
+
+  describe("addCommentReaction", () => {
+    test("does not throw and completes silently", async () => {
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      // Should not throw
+      await provider.addCommentReaction(1, "issue", "eyes");
+      await provider.addCommentReaction(2, "review", "white_check_mark");
+    });
+  });
+
+  describe("replyToComment", () => {
+    test("does not throw and completes silently", async () => {
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      // Should not throw
+      await provider.replyToComment(42, 1, "issue", "test reply");
+      await provider.replyToComment(42, 2, "review", "test reply");
+    });
+  });
 });

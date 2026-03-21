@@ -227,7 +227,7 @@ export function createFeedbackPoller(options: {
               actionableComments.map(async (comment) => {
                 if (comment.commentType === "ticket") return comment;
                 try {
-                  const seen = await scm.hasCommentReaction(Number(comment.commentId), comment.commentType as "issue" | "review", "eyes");
+                  const seen = await scm.hasCommentReaction(Number(comment.commentId), comment.commentType as "issue" | "review", "eyes", current.prNumber);
                   if (seen) {
                     log.debug("Skipping already-seen PR comment", {
                       ticketId: ticket.identifier,

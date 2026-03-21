@@ -76,16 +76,18 @@ export interface ScmProvider {
    * @param commentId - The comment ID.
    * @param commentType - Whether the comment is an issue-level or review-level comment.
    * @param reaction - The reaction content string (e.g. "eyes", "thumbs_up").
+   * @param prNumber - Optional PR number. Required by some SCM providers (e.g. Bitbucket Server).
    */
-  hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<boolean>;
+  hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, prNumber?: number): Promise<boolean>;
 
   /**
    * Adds a reaction to a comment (best-effort).
    * @param commentId - The comment ID.
    * @param commentType - Whether the comment is an issue-level or review-level comment.
    * @param reaction - The reaction content string (e.g. "eyes", "thumbs_up").
+   * @param prNumber - Optional PR number. Required by some SCM providers (e.g. Bitbucket Server).
    */
-  addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<void>;
+  addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, prNumber?: number): Promise<void>;
 
   /**
    * Replies to a comment on a pull request.

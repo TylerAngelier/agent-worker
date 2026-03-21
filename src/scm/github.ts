@@ -209,7 +209,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       }
     },
 
-    async hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<boolean> {
+    async hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, _prNumber?: number): Promise<boolean> {
       logger.debug("Checking comment reaction", { commentId, commentType, reaction });
       try {
         const basePath = commentType === "issue"
@@ -231,7 +231,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       }
     },
 
-    async addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string): Promise<void> {
+    async addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, _prNumber?: number): Promise<void> {
       logger.debug("Adding comment reaction", { commentId, commentType, reaction });
       try {
         const basePath = commentType === "issue"

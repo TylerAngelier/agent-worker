@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { createLogger } from "./logger.ts";
+import { createLogger, type LogLevel } from "./logger.ts";
 import { printSplash } from "./format.ts";
 import { createProvider } from "./providers/index.ts";
 import { createPoller } from "./poller.ts";
@@ -17,11 +17,12 @@ function main() {
 
   const configIndex = process.argv.indexOf("--config");
   if (configIndex === -1 || !process.argv[configIndex + 1]) {
-    console.error("Usage: agent-worker --config <path>");
+    console.error("Usage: agent-worker --config <path> [--debug]");
     process.exit(1);
   }
 
   const configPath = process.argv[configIndex + 1]!;
+  const debugFlag = process.argv.includes("--debug");
 
   let config;
   try {
@@ -34,15 +35,19 @@ function main() {
     process.exit(1);
   }
 
-  printSplash(`${config.provider.type} → ${config.executor.type}`);
+  // --debug flag overrides config log level to debug
+  const logLevel: LogLevel = debugFlag ? "debug" : config.log.level;
+
+  printSplash(`${config.provider.type} → ${config.executor.type}${debugFlag ? " (debug)" : ""}`);
 
   const logger = createLogger({
-    level: config.log.level,
+    level: logLevel,
     filePath: config.log.file,
+    redact: config.log.redact.length > 0 ? config.log.redact : undefined,
   });
 
-  const provider = createProvider(config.provider);
-  const scmProvider = createScmProvider(config.scm);
+  const provider = createProvider(config.provider, logger);
+  const scmProvider = createScmProvider(config.scm, logger);
   const prTracker = createPRTracker();
 
   const poller = createPoller({

@@ -1,7 +1,7 @@
 import { appendFileSync } from "fs";
 import { formatConsoleLine, isTTY } from "./format.ts";
 
-type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,
@@ -15,16 +15,34 @@ export interface Logger {
   info(msg: string, ctx?: Record<string, unknown>): void;
   warn(msg: string, ctx?: Record<string, unknown>): void;
   error(msg: string, ctx?: Record<string, unknown>): void;
+  child(component: string): Logger;
+}
+
+export async function time<T>(logger: Logger, label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    logger.debug(`${label} completed`, { durationMs: Date.now() - start });
+    return result;
+  } catch (err) {
+    logger.debug(`${label} failed`, {
+      durationMs: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 }
 
 export function createLogger(options: {
   level?: LogLevel;
   filePath?: string;
   redact?: string[];
+  component?: string;
 }): Logger {
   const minLevel = LEVEL_ORDER[options.level ?? "info"];
   const filePath = options.filePath;
   const redactValues = (options.redact ?? []).filter((v) => v.length > 0);
+  const component = options.component;
 
   function redact(text: string): string {
     let result = text;
@@ -37,12 +55,14 @@ export function createLogger(options: {
   function write(level: LogLevel, msg: string, ctx?: Record<string, unknown>) {
     if (LEVEL_ORDER[level] < minLevel) return;
 
+    const merged = component ? { component, ...ctx } : ctx;
+
     // Console output: human-readable for TTY, JSON for non-TTY
     const consoleLine = isTTY
-      ? redact(formatConsoleLine(level, msg, ctx))
+      ? redact(formatConsoleLine(level, msg, merged))
       : redact(
           JSON.stringify({
-            ...ctx,
+            ...merged,
             timestamp: new Date().toISOString(),
             level,
             message: msg,
@@ -59,7 +79,7 @@ export function createLogger(options: {
     if (filePath) {
       const jsonLine = redact(
         JSON.stringify({
-          ...ctx,
+          ...merged,
           timestamp: new Date().toISOString(),
           level,
           message: msg,
@@ -73,10 +93,18 @@ export function createLogger(options: {
     }
   }
 
+  function child(sub: string): Logger {
+    return createLogger({
+      ...options,
+      component: component ? `${component}:${sub}` : sub,
+    });
+  }
+
   return {
     debug: (msg, ctx?) => write("debug", msg, ctx),
     info: (msg, ctx?) => write("info", msg, ctx),
     warn: (msg, ctx?) => write("warn", msg, ctx),
     error: (msg, ctx?) => write("error", msg, ctx),
+    child,
   };
 }

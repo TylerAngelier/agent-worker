@@ -1,3 +1,5 @@
+/** @module src/feedback/feedback-handler — Processes actionable review feedback by dispatching it to the code executor */
+
 import type { Config } from "../config.ts";
 import type { Ticket, TicketProvider } from "../providers/types.ts";
 import type { CodeExecutor } from "../pipeline/executor.ts";
@@ -9,6 +11,25 @@ import { buildTaskVars } from "../pipeline/interpolate.ts";
 import { runHooks } from "../pipeline/hook-runner.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Processes a single actionable feedback comment by dispatching it to the code executor.
+ *
+ * Creates a worktree (if the executor requires one) on the existing PR branch,
+ * constructs a feedback prompt from the comment body, and runs the executor.
+ * On success, post-hooks are executed and a summary comment is posted to the ticket.
+ * On failure, an error comment is posted instead. The PR tracker's `lastCommentCheck`
+ * timestamp is always updated after processing.
+ *
+ * @param options - Processing options.
+ * @param options.ticket - The ticket associated with the PR.
+ * @param options.comment - The actionable feedback event to address.
+ * @param options.pr - The pull request metadata (number, url, branch, state).
+ * @param options.config - Full application configuration.
+ * @param options.provider - Ticket provider used for posting result comments.
+ * @param options.prTracker - PR tracker used to update the last comment check timestamp.
+ * @param options.executor - Optional executor override. If omitted, one is created from `config.executor.type`.
+ * @returns Resolves when processing is complete (success or failure).
+ */
 export async function processFeedback(options: {
   ticket: Ticket;
   comment: FeedbackEvent;

@@ -1,6 +1,11 @@
+/** @module src/format — Terminal formatting utilities (colors, splash banner, log line formatting) */
 const esc = (code: string) => `\x1b[${code}m`;
 const reset = esc("0");
 
+/**
+ * ANSI color escape functions. Each wraps text in the appropriate escape
+ * code and resets. Functions: bold, dim, red, green, yellow, blue, cyan, gray.
+ */
 export const colors = {
   bold: (s: string) => `${esc("1")}${s}${reset}`,
   dim: (s: string) => `${esc("2")}${s}${reset}`,
@@ -12,8 +17,13 @@ export const colors = {
   gray: (s: string) => `${esc("90")}${s}${reset}`,
 };
 
+/** Whether stdout is a TTY. Used to switch between human-readable and JSON log output. */
 export const isTTY = process.stdout.isTTY === true;
 
+/**
+ * Prints a boxed banner to the terminal. No-op if not a TTY.
+ * @param subtitle - text to display below the title
+ */
 export function printSplash(subtitle: string): void {
   if (!isTTY) return;
 
@@ -40,6 +50,14 @@ const levelColors: Record<string, (s: string) => string> = {
   error: colors.red,
 };
 
+/**
+ * Formats a log line for terminal output. Includes timestamp, colored level
+ * badge, optional component tag, and key=value context.
+ * @param level - log level string (debug, info, warn, error)
+ * @param msg - log message
+ * @param ctx - optional key-value context
+ * @returns formatted string
+ */
 export function formatConsoleLine(
   level: string,
   msg: string,

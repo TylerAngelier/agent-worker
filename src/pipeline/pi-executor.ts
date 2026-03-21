@@ -1,7 +1,18 @@
+/** @module src/pipeline/pi-executor — Pi coding agent executor implementation */
+
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/**
+ * Creates a Pi coding agent executor.
+ *
+ * Uses `pi -p <prompt> --no-session`. The `--no-session` flag ensures
+ * each invocation is stateless (no session file persisted).
+ * Requires an isolated worktree (`needsWorktree: true`).
+ *
+ * @returns {@link CodeExecutor} configured for Pi
+ */
 export function createPiExecutor(): CodeExecutor {
   return {
     name: "pi",

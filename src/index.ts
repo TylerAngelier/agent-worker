@@ -1,3 +1,4 @@
+/** @module src/index — CLI entry point that wires providers, executors, SCM, and feedback pollers */
 import { loadConfig } from "./config.ts";
 import { initLogger, log, type LogLevel } from "./logger.ts";
 import { printSplash } from "./format.ts";
@@ -9,6 +10,12 @@ import { createPRTracker } from "./feedback/tracking.ts";
 import { createFeedbackPoller } from "./feedback/feedback-poller.ts";
 import { version } from "../package.json";
 
+/**
+ * Parses CLI arguments (--config, --debug, --version), loads and validates
+ * the YAML config, initializes the logger, creates provider/poller/feedback-poller,
+ * wires up SIGINT/SIGTERM handlers, and starts both poll loops.
+ * Exits with code 1 on config errors or fatal poller errors.
+ */
 function main() {
   if (process.argv.includes("--version")) {
     console.log(version);

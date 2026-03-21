@@ -1,3 +1,5 @@
+/** @module src/scheduler — Claims tickets, runs the executor pipeline with retries, and updates ticket status based on outcome. */
+
 import type { Config } from "./config.ts";
 import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
@@ -5,15 +7,47 @@ import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
 import { log } from "./logger.ts";
 
+/**
+ * Returns the last N lines of a string.
+ * Used to truncate long output in ticket comments so they stay readable.
+ *
+ * @param text - The full text to truncate.
+ * @param n - Maximum number of lines to keep from the end.
+ * @returns The last `n` lines joined by newlines.
+ */
 function lastNLines(text: string, n: number): string {
   const lines = text.split("\n");
   return lines.slice(-n).join("\n");
 }
 
+/**
+ * Outcome of processing a ticket through the pipeline.
+ *
+ * - `"failed"` — The ticket could not be processed (claim failed, pipeline
+ *   exhausted retries, or status update failed).
+ * - `"code_review"` — The ticket was successfully processed and moved to
+ *   code review status. Includes the ticket ID and branch name.
+ */
 export type ProcessTicketResult =
   | { outcome: "failed" }
   | { outcome: "code_review"; ticketId: string; branch: string };
 
+/**
+ * Claims a ticket, runs the pipeline with configurable retries, updates the ticket
+ * status, and posts a summary comment.
+ *
+ * On success, moves the ticket to "code_review" status and posts the last 50 lines
+ * of executor output. On failure after all retries, moves to "failed" status and
+ * posts error details. If claiming the ticket or updating its final status throws,
+ * the function returns `{ outcome: "failed" }` without re-throwing.
+ *
+ * @param options.ticket - The ticket to process.
+ * @param options.provider - Provider for status transitions and comments.
+ * @param options.config - Full application config (executor settings, hooks, statuses).
+ * @param options.executor - Optional executor override (defaults to `config.executor.type`).
+ * @returns A {@link ProcessTicketResult} indicating whether the ticket reached code review or failed.
+ * @throws Never — all errors are caught and result in `{ outcome: "failed" }`.
+ */
 export async function processTicket(options: {
   ticket: Ticket;
   provider: TicketProvider;

@@ -1,3 +1,6 @@
+/**
+ * @module src/pipeline/pipeline — Pipeline orchestration for worktree lifecycle, hooks, and executor invocation.
+ */
 import { join } from "path";
 import { tmpdir } from "os";
 import type { Ticket } from "../providers/types.ts";
@@ -7,12 +10,25 @@ import { runHooks } from "./hook-runner.ts";
 import { log } from "../logger.ts";
 
 export type PipelineResult = {
+  /** Whether the full pipeline completed without errors. */
   success: boolean;
+  /** Pipeline stage that failed, if applicable. */
   stage?: "pre-hook" | "executor" | "post-hook";
+  /** Human-readable error description on failure. */
   error?: string;
+  /** Executor output text on success. */
   output?: string;
 };
 
+/**
+ * Creates an isolated git worktree in the temp directory.
+ * Defaults to creating a new branch from main.
+ * @param repoPath - Path to the git repository.
+ * @param branch - Name for the worktree branch.
+ * @param options.createBranch - Whether to create a new branch (default `true`).
+ * @returns Absolute path to the worktree directory.
+ * @throws Error if git worktree add fails.
+ */
 export async function createWorktree(
   repoPath: string,
   branch: string,
@@ -44,6 +60,13 @@ export async function createWorktree(
   return worktreePath;
 }
 
+/**
+ * Removes a git worktree and deletes the associated branch.
+ * Logs warnings on failure but does not throw.
+ * @param repoPath - Path to the git repository.
+ * @param worktreePath - Absolute path to the worktree directory.
+ * @param branch - Branch name to delete after removal.
+ */
 export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
@@ -86,6 +109,18 @@ export async function removeWorktree(
   }
 }
 
+/**
+ * Orchestrates the full pipeline lifecycle for a ticket: optionally creates a worktree,
+ * runs pre-hooks sequentially, invokes the code executor with the ticket prompt,
+ * runs post-hooks sequentially, and cleans up the worktree in a finally block.
+ * @param options.ticket - The ticket to process.
+ * @param options.preHooks - Shell commands to run before the executor.
+ * @param options.postHooks - Shell commands to run after the executor.
+ * @param options.repoCwd - Working directory of the git repository.
+ * @param options.executor - The code executor to invoke.
+ * @param options.timeoutMs - Maximum execution time in milliseconds.
+ * @returns PipelineResult indicating success or failure details.
+ */
 export async function executePipeline(options: {
   ticket: Ticket;
   preHooks: string[];

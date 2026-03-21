@@ -1,3 +1,4 @@
+/** @module src/config — YAML config loader with Zod validation */
 import { readFileSync } from "fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod/v4";
@@ -12,6 +13,7 @@ const StatusesSchema = z.object({
   failed: z.string(),
 });
 
+/** Maps ticket lifecycle stages to provider-specific status names. */
 export type Statuses = z.infer<typeof StatusesSchema>;
 
 const LinearProviderSchema = z.object({
@@ -21,6 +23,7 @@ const LinearProviderSchema = z.object({
   statuses: StatusesSchema,
 });
 
+/** Linear provider config requiring a project ID and status mappings. */
 export type LinearProviderConfig = z.infer<typeof LinearProviderSchema>;
 
 const JiraProviderSchema = z.object({
@@ -31,6 +34,7 @@ const JiraProviderSchema = z.object({
   statuses: StatusesSchema,
 });
 
+/** Jira provider config requiring a base URL, JQL query, and status mappings. */
 export type JiraProviderConfig = z.infer<typeof JiraProviderSchema>;
 
 const PlaneProviderSchema = z.object({
@@ -43,6 +47,7 @@ const PlaneProviderSchema = z.object({
   statuses: StatusesSchema,
 });
 
+/** Plane provider config requiring a workspace slug, project ID, query, and status mappings. */
 export type PlaneProviderConfig = z.infer<typeof PlaneProviderSchema>;
 
 const ProviderSchema = z.discriminatedUnion("type", [
@@ -51,6 +56,7 @@ const ProviderSchema = z.discriminatedUnion("type", [
   PlaneProviderSchema,
 ]);
 
+/** Discriminated union of all supported ticket provider configurations. */
 export type ProviderConfig = z.infer<typeof ProviderSchema>;
 
 // --- Shared schemas ---
@@ -84,6 +90,7 @@ const GitHubScmSchema = z.object({
   repo: z.string(),
 });
 
+/** GitHub SCM config requiring an owner and repo name. */
 export type GitHubScmConfig = z.infer<typeof GitHubScmSchema>;
 
 const BitbucketServerScmSchema = z.object({
@@ -93,6 +100,7 @@ const BitbucketServerScmSchema = z.object({
   repo: z.string(),
 });
 
+/** Bitbucket Server SCM config requiring a base URL, project key, and repo name. */
 export type BitbucketServerScmConfig = z.infer<typeof BitbucketServerScmSchema>;
 
 const ScmSchema = z.discriminatedUnion("type", [
@@ -100,6 +108,7 @@ const ScmSchema = z.discriminatedUnion("type", [
   BitbucketServerScmSchema,
 ]);
 
+/** Discriminated union of all supported SCM provider configurations. */
 export type ScmConfig = z.infer<typeof ScmSchema>;
 
 // --- Feedback schema ---
@@ -109,6 +118,7 @@ const FeedbackSchema = z.object({
   poll_interval_seconds: z.number().positive().default(120),
 }).default({ comment_prefix: "/agent", poll_interval_seconds: 120 });
 
+/** Config for the feedback polling system, including comment prefix and poll interval. */
 export type FeedbackConfig = z.infer<typeof FeedbackSchema>;
 
 const ConfigFileSchema = z.object({
@@ -123,8 +133,16 @@ const ConfigFileSchema = z.object({
 
 type ConfigFile = z.infer<typeof ConfigFileSchema>;
 
+/** Top-level application configuration combining all sub-configs. */
 export type Config = ConfigFile;
 
+/**
+ * Reads a YAML config file and validates it against the full schema.
+ * @param filePath - path to the YAML file
+ * @returns validated Config object
+ * @throws {z.ZodError} if validation fails
+ * @throws {Error} if file cannot be read
+ */
 export function loadConfig(filePath: string): Config {
   const text = readFileSync(filePath, "utf-8");
   const raw = parseYaml(text) as Record<string, unknown>;

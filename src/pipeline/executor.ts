@@ -1,3 +1,7 @@
+/**
+ * @module src/pipeline/executor — Executor SPI contract, factory, and shared utilities.
+ */
+
 import { createClaudeExecutor } from "./claude-executor.ts";
 import { createCodexExecutor } from "./codex-executor.ts";
 import { createOpencodeExecutor } from "./opencode-executor.ts";
@@ -6,6 +10,10 @@ import { createPiExecutor } from "./pi-executor.ts";
 /**
  * Attempts to spawn a process, catching ENOENT (binary not found).
  * Returns the process on success, or an ExecutorResult describing the failure.
+ * @param command - Command and arguments to spawn.
+ * @param options - Spawn options forwarded to `Bun.spawn`.
+ * @returns An object wrapping the spawned process on success, or an {@link ExecutorResult} with success: false if the executable was not found.
+ * @throws Re-throws any non-ENOENT error from `Bun.spawn`.
  */
 export function spawnOrError(
   command: string[],
@@ -27,20 +35,43 @@ export function spawnOrError(
   }
 }
 
+/** Result returned by a {@link CodeExecutor} after invocation. */
 export type ExecutorResult = {
+  /** Whether the executor completed successfully. */
   success: boolean;
+  /** Combined stdout and stderr output from the executor. */
   output: string;
+  /** Whether the executor was killed due to exceeding the timeout. */
   timedOut: boolean;
+  /** Process exit code, or `null` if the process was killed (e.g. timeout or signal). */
   exitCode: number | null;
 };
 
+/**
+ * SPI contract for coding agent executors.
+ *
+ * Implementations must not import from `scheduler.ts`, `poller.ts`, `feedback/`, or `index.ts`.
+ */
 export interface CodeExecutor {
+  /** Human-readable executor name (e.g. "Claude", "Codex"). */
   name: string;
   /** Whether the pipeline should create an isolated git worktree for this executor. */
   needsWorktree: boolean;
+  /**
+   * Runs the executor with the given prompt.
+   * @param prompt - The task prompt / instructions for the coding agent.
+   * @param cwd - Working directory in which the executor should operate.
+   * @param timeoutMs - Maximum execution time in milliseconds before the process is killed.
+   */
   run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult>;
 }
 
+/**
+ * Reads chunks from a readable stream, calling `onLine` for each complete line.
+ * @param stream - The readable stream to consume.
+ * @param onLine - Callback invoked for each line containing non-whitespace characters, as it becomes available.
+ * @returns The full text content of the stream (all chunks concatenated).
+ */
 export async function streamToLines(
   stream: ReadableStream<Uint8Array>,
   onLine: (line: string) => void
@@ -69,6 +100,12 @@ export async function streamToLines(
   return chunks.join("");
 }
 
+/**
+ * Creates a code executor based on the specified type.
+ * @param type - Executor identifier ("claude" | "codex" | "opencode" | "pi").
+ * @returns A {@link CodeExecutor} implementation for the specified type.
+ * @throws Error if `type` does not match a known executor.
+ */
 export function createExecutor(type: "claude" | "codex" | "opencode" | "pi"): CodeExecutor {
   switch (type) {
     case "claude":

@@ -201,7 +201,15 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
         // Check if reactions are embedded in the comment properties
         const properties = data.properties as Record<string, unknown>[] | undefined;
         if (Array.isArray(properties)) {
-          const hasReaction = properties.some((p) => p.key === "reactions" && String(p.value).includes(emoticon));
+          const hasReaction = properties.some((p) => {
+            if (p.key !== "reactions") return false;
+            try {
+              const reactions = JSON.parse(String(p.value)) as Record<string, unknown>;
+              return reactions[emoticon] !== undefined;
+            } catch {
+              return false;
+            }
+          });
           if (hasReaction) {
             logger.debug("Comment reaction found", { commentId, emoticon });
             return true;
@@ -235,7 +243,6 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
           },
         });
         logger.debug("Bitbucket reaction API response", { status: res.status, durationMs: Date.now() - start });
@@ -261,7 +268,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
     async replyToComment(prNumber: number, commentId: number, _commentType: "issue" | "review", body: string): Promise<void> {
       logger.debug("Replying to comment", { prNumber, commentId });
       try {
-        const url = `${baseUrl}/rest/api/latest/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments`;
+        const url = `${baseUrl}/rest/api/1.0/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments`;
         const start = Date.now();
         const res = await fetch(url, {
           method: "POST",

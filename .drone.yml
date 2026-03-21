@@ -8,7 +8,7 @@ platform:
 
 steps:
   - name: typecheck
-    image: oven/bun:1.3.11
+    image: registry.local.tylerangelier.com/oven/bun:1.3.11
     commands:
       - bun install --frozen-lockfile
       - bunx tsc --noEmit
@@ -18,7 +18,7 @@ steps:
         - pull_request
 
   - name: test
-    image: oven/bun:1.3.11
+    image: registry.local.tylerangelier.com/oven/bun:1.3.11
     commands:
       - apt-get update && apt-get install -y git
       - bun install --frozen-lockfile
@@ -29,7 +29,7 @@ steps:
         - pull_request
 
   - name: build-linux
-    image: oven/bun:1.3.11
+    image: registry.local.tylerangelier.com/oven/bun:1.3.11
     commands:
       - bun install --frozen-lockfile
       - bun run build:linux-x64
@@ -40,7 +40,7 @@ steps:
         - main
 
   - name: build-darwin
-    image: oven/bun:1.3.11
+    image: registry.local.tylerangelier.com/oven/bun:1.3.11
     commands:
       - bun install --frozen-lockfile
       - bun run build:darwin-arm64

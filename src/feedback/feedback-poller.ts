@@ -87,6 +87,7 @@ export function createFeedbackPoller(options: {
       pr,
       config,
       provider,
+      scm,
       prTracker,
     });
   }

@@ -29,6 +29,7 @@ agent-worker.yaml
 .eslintcache
 .cache
 *.tsbuildinfo
+.bun-build*
 
 # IntelliJ based IDEs
 .idea

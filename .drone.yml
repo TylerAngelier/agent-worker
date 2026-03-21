@@ -1,0 +1,50 @@
+kind: pipeline
+type: docker
+name: default
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+  - name: typecheck
+    image: oven/bun:1
+    commands:
+      - bun install --frozen-lockfile
+      - bunx tsc --noEmit
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: test
+    image: oven/bun:1
+    commands:
+      - bun install --frozen-lockfile
+      - bun test
+    when:
+      event:
+        - push
+        - pull_request
+
+  - name: build-linux
+    image: oven/bun:1
+    commands:
+      - bun install --frozen-lockfile
+      - bun run build:linux-x64
+    when:
+      event:
+        - push
+      branch:
+        - main
+
+  - name: build-darwin
+    image: oven/bun:1
+    commands:
+      - bun install --frozen-lockfile
+      - bun run build:darwin-arm64
+    when:
+      event:
+        - push
+      branch:
+        - main

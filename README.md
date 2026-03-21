@@ -263,6 +263,10 @@ bun run build:darwin-x64
 bun run build:linux-x64
 ```
 
+## CI
+
+This project uses [Drone CI](docs/drone-ci.md). Type checking and tests run on every push and PR. Cross-platform binaries are built on pushes to `main`.
+
 ## License
 
 MIT

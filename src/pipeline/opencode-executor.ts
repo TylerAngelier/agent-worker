@@ -1,6 +1,6 @@
 import type { Logger } from "../logger.ts";
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
-import { streamToLines } from "./executor.ts";
+import { streamToLines, spawnOrError } from "./executor.ts";
 
 export function createOpencodeExecutor(): CodeExecutor {
   return {
@@ -9,11 +9,14 @@ export function createOpencodeExecutor(): CodeExecutor {
     async run(prompt: string, cwd: string, timeoutMs: number, logger: Logger): Promise<ExecutorResult> {
       logger.info("opencode started", { timeoutMs });
 
-      const proc = Bun.spawn(["opencode", "-p", prompt], {
-        cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const spawned = spawnOrError(
+        ["opencode", "-p", prompt],
+        { cwd, stdout: "pipe", stderr: "pipe" }
+      );
+
+      if ("success" in spawned) return spawned;
+
+      const proc = spawned.proc;
 
       let timedOut = false;
       const timer = setTimeout(() => {

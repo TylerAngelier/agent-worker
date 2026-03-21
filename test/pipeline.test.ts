@@ -51,7 +51,7 @@ function failingExecutor(): CodeExecutor {
 
 function createTempGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "agent-worker-test-"));
-  execSync("git init && git commit --allow-empty -m 'init'", { cwd: dir });
+  execSync("git init -b main && git commit --allow-empty -m 'init'", { cwd: dir });
   return dir;
 }
 

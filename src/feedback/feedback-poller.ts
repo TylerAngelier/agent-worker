@@ -8,6 +8,34 @@ import { findActionableComments, type FeedbackEvent } from "./comment-filter.ts"
 import { processFeedback } from "./feedback-handler.ts";
 import { log } from "../logger.ts";
 
+/** Reactions placed by the agent to mark comments as seen or processed. */
+const AGENT_REACTIONS = ["eyes", "+1", "-1"] as const;
+
+/**
+ * Checks whether a comment has any agent-placed reaction (eyes, +1, or -1).
+ * Used for deduplication so that already-processed comments are not dispatched
+ * again after a server restart.
+ *
+ * @param scm - SCM provider to query for reactions.
+ * @param commentId - The comment ID to check.
+ * @param commentType - Whether the comment is an issue-level or review-level comment.
+ * @param prNumber - Optional PR number required by some SCM providers.
+ * @returns `true` if any agent reaction is present, `false` otherwise.
+ */
+export async function hasAgentReaction(
+  scm: ScmProvider,
+  commentId: number,
+  commentType: "issue" | "review",
+  prNumber?: number,
+): Promise<boolean> {
+  const results = await Promise.all(
+    AGENT_REACTIONS.map((reaction) =>
+      scm.hasCommentReaction(commentId, commentType, reaction, prNumber).catch(() => false)
+    ),
+  );
+  return results.some(Boolean);
+}
+
 /**
  * Creates a long-running poller that monitors tickets in "code_review" status.
  *
@@ -222,12 +250,12 @@ export function createFeedbackPoller(options: {
               });
             }
 
-            // Filter out PR comments that already have an "eyes" reaction (already being processed)
+            // Filter out PR comments that already have an agent reaction (eyes, +1, or -1)
             actionableComments = await Promise.all(
               actionableComments.map(async (comment) => {
                 if (comment.commentType === "ticket") return comment;
                 try {
-                  const seen = await scm.hasCommentReaction(Number(comment.commentId), comment.commentType as "issue" | "review", "eyes", current.prNumber);
+                  const seen = await hasAgentReaction(scm, Number(comment.commentId), comment.commentType as "issue" | "review", current.prNumber);
                   if (seen) {
                     log.debug("Skipping already-seen PR comment", {
                       ticketId: ticket.identifier,

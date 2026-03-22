@@ -4,25 +4,35 @@ import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/** Options for creating an OpenCode executor. */
+export interface OpenCodeExecutorOptions {
+  /** Optional model identifier passed via --model flag. */
+  model?: string;
+}
+
 /**
  * Creates an OpenCode executor.
  *
- * Uses `opencode -p <prompt>`.
+ * Uses `opencode [--model <model>] -p <prompt>`.
  * Requires an isolated worktree (`needsWorktree: true`).
  *
+ * @param options - Optional configuration including model selection.
  * @returns {@link CodeExecutor} configured for OpenCode
  */
-export function createOpencodeExecutor(): CodeExecutor {
+export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeExecutor {
   return {
     name: "opencode",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("opencode started", { timeoutMs });
+      log.info("opencode started", { timeoutMs, model: options?.model });
 
-      const spawned = spawnOrError(
-        ["opencode", "-p", prompt],
-        { cwd, stdout: "pipe", stderr: "pipe" }
-      );
+      const args = ["opencode"];
+      if (options?.model) {
+        args.push("--model", options.model);
+      }
+      args.push("-p", prompt);
+
+      const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
 
       if ("success" in spawned) return spawned;
 

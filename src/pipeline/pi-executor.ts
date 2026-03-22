@@ -4,26 +4,36 @@ import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/** Options for creating a Pi executor. */
+export interface PiExecutorOptions {
+  /** Optional model identifier passed via --model flag. */
+  model?: string;
+}
+
 /**
  * Creates a Pi coding agent executor.
  *
- * Uses `pi -p <prompt> --no-session`. The `--no-session` flag ensures
+ * Uses `pi [--model <model>] -p <prompt> --no-session`. The `--no-session` flag ensures
  * each invocation is stateless (no session file persisted).
  * Requires an isolated worktree (`needsWorktree: true`).
  *
+ * @param options - Optional configuration including model selection.
  * @returns {@link CodeExecutor} configured for Pi
  */
-export function createPiExecutor(): CodeExecutor {
+export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
   return {
     name: "pi",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("pi started", { timeoutMs });
+      log.info("pi started", { timeoutMs, model: options?.model });
 
-      const spawned = spawnOrError(
-        ["pi", "-p", prompt, "--no-session"],
-        { cwd, stdout: "pipe", stderr: "pipe" }
-      );
+      const args = ["pi"];
+      if (options?.model) {
+        args.push("--model", options.model);
+      }
+      args.push("-p", prompt, "--no-session");
+
+      const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
 
       if ("success" in spawned) return spawned;
 

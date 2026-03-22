@@ -79,6 +79,8 @@ export type MountConfig = z.infer<typeof MountSchema>;
 
 const NativeExecutorSchema = z.object({
   type: z.enum(["claude", "codex", "opencode", "pi"]),
+  /** Optional model identifier passed to the executor CLI via --model flag. */
+  model: z.string().optional(),
   /** When true, executors add their respective auto-approve flags (claude: --dangerously-skip-permissions, codex: --yolo). Ignored by opencode/pi (always auto). Defaults to true for backward compatibility. */
   dangerously_skip_permissions: z.boolean().default(true),
   timeout_seconds: z.number().positive().default(300),

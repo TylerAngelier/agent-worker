@@ -114,7 +114,7 @@ export async function processTicket(options: {
 
       const output = lastNLines(lastResult.output ?? "", 50);
       const comment = [
-        "## Agent Worker — In Code Review",
+        "## agent-worker: In Code Review",
         "",
         "Task completed. Awaiting code review.",
         ...(output ? ["", "**Output (last 50 lines):**", "```", output, "```"] : []),
@@ -129,7 +129,7 @@ export async function processTicket(options: {
 
       const errorOutput = lastNLines(lastResult?.error ?? "Unknown error", 50);
       const comment = [
-        "## Agent Worker Failure",
+        "## agent-worker: Task Failed",
         "",
         `**Stage:** ${lastResult?.stage ?? "unknown"}`,
         "**Error:**",

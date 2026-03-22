@@ -155,7 +155,7 @@ export function createFeedbackPoller(options: {
                 const shortSha = mergeInfo?.sha ? mergeInfo.sha.slice(0, 7) : "unknown";
 
                 const lines: string[] = [
-                  "## Agent Worker — PR Merged",
+                  "## agent-worker: PR Merged",
                   "",
                   `PR #${current.prNumber} has been merged. Ticket moved to **${verificationStatus}**.`,
                 ];

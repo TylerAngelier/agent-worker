@@ -176,7 +176,7 @@ export async function processFeedback(options: {
       await bestEffortReply(scm, pr.number, comment.commentId, comment.commentType, `Addressed in commit \`${sha}\`.`);
 
       await provider.postComment(ticket.id, [
-        "## Agent Worker — Feedback Addressed",
+        "## agent-worker: Feedback Addressed",
         "",
         `Addressed review feedback on [PR #${pr.number}](${pr.url}).`,
       ].join("\n"));
@@ -202,7 +202,7 @@ export async function processFeedback(options: {
       });
 
       await provider.postComment(ticket.id, [
-        "## Agent Worker — Feedback Processing Failed",
+        "## agent-worker: Feedback Processing Failed",
         "",
         `Failed to address review feedback on [PR #${pr.number}](${pr.url}).`,
         "",

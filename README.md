@@ -1,6 +1,7 @@
 # agent-worker
 
 Hi
+Bye
 
 An autonomous worker agent
 

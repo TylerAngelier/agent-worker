@@ -111,13 +111,13 @@ export async function streamToLines(
 export function createExecutor(executorConfig: Config["executor"]): CodeExecutor {
   switch (executorConfig.type) {
     case "claude":
-      return createClaudeExecutor();
+      return createClaudeExecutor({ model: executorConfig.model });
     case "codex":
-      return createCodexExecutor();
+      return createCodexExecutor({ model: executorConfig.model });
     case "opencode":
-      return createOpencodeExecutor();
+      return createOpencodeExecutor({ model: executorConfig.model });
     case "pi":
-      return createPiExecutor();
+      return createPiExecutor({ model: executorConfig.model });
     case "container":
       return createDockerExecutor({
         image: executorConfig.image,

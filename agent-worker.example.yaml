@@ -89,6 +89,14 @@ executor:
   # Agent harness to use: "claude" (default), "codex", "opencode", or "pi"
   type: claude
 
+  # Optional: specify which model the agent should use
+  # Examples:
+  #   claude: "claude-sonnet-4-20250514", "claude-opus-4-20250514"
+  #   codex: "o3", "o4-mini"
+  #   opencode: "anthropic/claude-sonnet-4", "openai/gpt-4o"
+  #   pi: "claude-sonnet-4", "openai/gpt-4o"
+  # model: claude-sonnet-4-20250514
+
   # Maximum time in seconds for the agent to complete (default: 300)
   timeout_seconds: 300
 

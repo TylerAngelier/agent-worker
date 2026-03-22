@@ -4,26 +4,36 @@ import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+/** Options for creating a Claude Code executor. */
+export interface ClaudeExecutorOptions {
+  /** Optional model identifier passed via --model flag. */
+  model?: string;
+}
+
 /**
  * Creates a Claude Code executor.
  *
- * Uses `claude --print --dangerously-skip-permissions -p <prompt>`.
+ * Uses `claude --print [--model <model>] --dangerously-skip-permissions -p <prompt>`.
  * Requires an isolated worktree (`needsWorktree: true`) since Claude
  * operates on the filesystem directly.
  *
+ * @param options - Optional configuration including model selection.
  * @returns {@link CodeExecutor} configured for Claude Code
  */
-export function createClaudeExecutor(): CodeExecutor {
+export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecutor {
   return {
     name: "claude",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Claude Code started", { timeoutMs });
+      log.info("Claude Code started", { timeoutMs, model: options?.model });
 
-      const spawned = spawnOrError(
-        ["claude", "--print", "--dangerously-skip-permissions", "-p", prompt],
-        { cwd, stdout: "pipe", stderr: "pipe" }
-      );
+      const args = ["claude", "--print"];
+      if (options?.model) {
+        args.push("--model", options.model);
+      }
+      args.push("--dangerously-skip-permissions", "-p", prompt);
+
+      const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
 
       if ("success" in spawned) return spawned;
 

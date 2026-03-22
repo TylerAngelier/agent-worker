@@ -173,4 +173,95 @@ describe("processFeedback", () => {
     expect(receivedPrompt).toContain("Please fix the typo");
     expect(receivedPrompt).toContain("Address this feedback by pushing additional commits");
   });
+
+  test("interpolates all template variables in custom feedback prompt", async () => {
+    let receivedPrompt = "";
+    const capturingExecutor: CodeExecutor = {
+      name: "mock",
+      needsWorktree: false,
+      run: async (prompt) => {
+        receivedPrompt = prompt;
+        return { success: true, output: "ok", timedOut: false, exitCode: 0 };
+      },
+    };
+
+    const config = makeConfig({
+      prompts: {
+        feedback: "Ticket {id} on branch {branch}: Keep changes minimal.",
+      },
+    });
+
+    const prTracker = makePRTracker();
+    prTracker.track({
+      ticketId: ticket.id,
+      prNumber: pr.number,
+      branch: pr.branch,
+      lastCommentCheck: new Date().toISOString(),
+    });
+
+    await processFeedback({
+      ticket,
+      comment,
+      pr,
+      config,
+      provider: makeProvider(),
+      scm: makeScm(),
+      prTracker,
+      executor: capturingExecutor,
+    });
+
+    expect(receivedPrompt).toContain("Ticket ENG-100 on branch agent/task-ENG-100: Keep changes minimal.");
+    expect(receivedPrompt).toContain("Review feedback on PR #42:");
+    expect(receivedPrompt).toContain("Please fix the typo");
+  });
+
+  test("handles multi-line custom feedback prompts", async () => {
+    let receivedPrompt = "";
+    const capturingExecutor: CodeExecutor = {
+      name: "mock",
+      needsWorktree: false,
+      run: async (prompt) => {
+        receivedPrompt = prompt;
+        return { success: true, output: "ok", timedOut: false, exitCode: 0 };
+      },
+    };
+
+    const multiLinePrompt = `Working on {id}.
+
+When addressing feedback:
+1. Keep changes minimal
+2. Focus on the specific issue
+3. Don't refactor unrelated code`;
+
+    const config = makeConfig({
+      prompts: {
+        feedback: multiLinePrompt,
+      },
+    });
+
+    const prTracker = makePRTracker();
+    prTracker.track({
+      ticketId: ticket.id,
+      prNumber: pr.number,
+      branch: pr.branch,
+      lastCommentCheck: new Date().toISOString(),
+    });
+
+    await processFeedback({
+      ticket,
+      comment,
+      pr,
+      config,
+      provider: makeProvider(),
+      scm: makeScm(),
+      prTracker,
+      executor: capturingExecutor,
+    });
+
+    expect(receivedPrompt).toContain("Working on ENG-100.");
+    expect(receivedPrompt).toContain("When addressing feedback:");
+    expect(receivedPrompt).toContain("1. Keep changes minimal");
+    expect(receivedPrompt).toContain("Review feedback on PR #42:");
+    expect(receivedPrompt).toContain("Please fix the typo");
+  });
 });

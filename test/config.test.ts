@@ -414,4 +414,28 @@ prompts:
     expect(config.prompts.implement).toBeUndefined();
     expect(config.prompts.feedback).toBeUndefined();
   });
+
+  test("parses prompts config with special characters", () => {
+    const yaml = `
+${minimalProvider}
+prompts:
+  implement: "Use --flag and 'quotes' with $variables"
+  feedback: "Keep it simple: don't over-engineer!"
+`;
+    const config = loadConfig(writeConfig(yaml));
+    expect(config.prompts.implement).toBe("Use --flag and 'quotes' with $variables");
+    expect(config.prompts.feedback).toBe("Keep it simple: don't over-engineer!");
+  });
+
+  test("parses empty string prompts", () => {
+    const yaml = `
+${minimalProvider}
+prompts:
+  implement: ""
+  feedback: ""
+`;
+    const config = loadConfig(writeConfig(yaml));
+    expect(config.prompts.implement).toBe("");
+    expect(config.prompts.feedback).toBe("");
+  });
 });

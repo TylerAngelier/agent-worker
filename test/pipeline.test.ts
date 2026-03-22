@@ -209,4 +209,67 @@ describe("executePipeline", () => {
 
     expect(receivedPrompt).toBe("Ticket: Test ticket\n\nDo something");
   });
+
+  test("interpolates all template variables in custom prompt", async () => {
+    let receivedPrompt = "";
+    const capturingExecutor: CodeExecutor = {
+      name: "mock",
+      needsWorktree: false,
+      run: async (prompt) => {
+        receivedPrompt = prompt;
+        return { success: true, output: "ok", timedOut: false, exitCode: 0 };
+      },
+    };
+
+    await executePipeline({
+      ticket,
+      preHooks: [],
+      postHooks: [],
+      repoCwd: repoDir,
+      executor: capturingExecutor,
+      timeoutMs: 5000,
+      customPrompt: "ID: {id}, Title: {title}, Branch: {branch}, Raw: {raw_title}, Date: {date}",
+    });
+
+    expect(receivedPrompt).toContain("ID: ENG-100");
+    expect(receivedPrompt).toContain("Title: test-ticket");
+    expect(receivedPrompt).toContain("Branch: agent/task-ENG-100");
+    expect(receivedPrompt).toContain("Raw: Test ticket");
+    expect(receivedPrompt).toMatch(/Date: \d{4}-\d{2}-\d{2}T/); // ISO date format
+    expect(receivedPrompt).toContain("Ticket: Test ticket");
+  });
+
+  test("handles multi-line custom prompts", async () => {
+    let receivedPrompt = "";
+    const capturingExecutor: CodeExecutor = {
+      name: "mock",
+      needsWorktree: false,
+      run: async (prompt) => {
+        receivedPrompt = prompt;
+        return { success: true, output: "ok", timedOut: false, exitCode: 0 };
+      },
+    };
+
+    const multiLinePrompt = `Working on {id}.
+
+Follow these guidelines:
+1. Run typecheck
+2. Run tests
+3. Review changes`;
+
+    await executePipeline({
+      ticket,
+      preHooks: [],
+      postHooks: [],
+      repoCwd: repoDir,
+      executor: capturingExecutor,
+      timeoutMs: 5000,
+      customPrompt: multiLinePrompt,
+    });
+
+    expect(receivedPrompt).toContain("Working on ENG-100.");
+    expect(receivedPrompt).toContain("Follow these guidelines:");
+    expect(receivedPrompt).toContain("1. Run typecheck");
+    expect(receivedPrompt).toContain("Ticket: Test ticket");
+  });
 });

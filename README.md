@@ -142,6 +142,21 @@ hooks:
     - "git push origin {branch}"
     - "gh pr create --title '{id}: {raw_title}' --body 'Fixes {id}. Implemented by Agent Worker.' --base main"
 
+# --- Custom Prompts (optional) ---
+# Custom prompts prepended to executor runs
+prompts:
+  # Prompt prepended when implementing a ticket (supports template variables)
+  implement: |
+    Working on {id}: {raw_title}
+    
+    Follow project conventions in AGENTS.md.
+    Run `bun typecheck && bun test` before finishing.
+  
+  # Prompt prepended when addressing PR feedback (supports template variables)
+  feedback: |
+    Keep changes minimal and focused on the specific feedback.
+    Don't refactor unrelated code.
+
 # --- Executor (optional) ---
 executor:
   type: claude                          # Agent harness: claude, codex, opencode, pi, or container (default: claude)
@@ -199,6 +214,72 @@ Hook commands support the following variables:
 | `{branch}` | Generated branch name (`agent/task-{id}`) |
 | `{worktree}` | Absolute path to the worktree directory |
 | `{date}` | Current date in `YYYY-MM-DD` format |
+
+### Custom Prompts
+
+You can customize the prompts sent to the coding agent by adding a `prompts` section to your config. Custom prompts are prepended to the default ticket or feedback context, allowing you to inject project-specific instructions, conventions, or guidelines.
+
+#### Implementation prompts
+
+When a ticket is being implemented, the `prompts.implement` text is prepended before the ticket title and description:
+
+```yaml
+prompts:
+  implement: |
+    Working on {id}: {raw_title}
+    
+    Project conventions:
+    - Follow the coding standards in AGENTS.md
+    - Run `bun typecheck && bun test` before finishing
+    - Write clear, concise commit messages
+```
+
+#### Feedback prompts
+
+When addressing PR review feedback, the `prompts.feedback` text is prepended before the feedback comment:
+
+```yaml
+prompts:
+  feedback: |
+    Addressing feedback on {id}.
+    
+    Guidelines:
+    - Keep changes minimal and focused
+    - Only address the specific feedback provided
+    - Don't refactor unrelated code
+```
+
+#### Template variables
+
+Both `implement` and `feedback` prompts support the same template variables as hooks:
+
+| Variable | Value |
+|---|---|
+| `{id}` | Ticket identifier (e.g. `ENG-42`) |
+| `{title}` | Slugified ticket title (e.g. `add-login-page`) |
+| `{raw_title}` | Original ticket title, sanitized for shell safety (e.g. `Add login page`) |
+| `{branch}` | Generated branch name (`agent/task-{id}`) |
+| `{worktree}` | Absolute path to the worktree directory |
+| `{date}` | Current ISO 8601 timestamp |
+
+#### Example
+
+Here's a complete example showing both prompts in action:
+
+```yaml
+prompts:
+  implement: |
+    Working on {id}: {raw_title}
+    Date: {date}
+    Branch: {branch}
+    
+    Follow the project conventions in AGENTS.md.
+    Always run `bun typecheck && bun test` before finishing.
+  
+  feedback: |
+    Keep changes minimal on {id}.
+    Only address the specific feedback provided.
+```
 
 ## Usage
 

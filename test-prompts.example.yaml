@@ -1,0 +1,62 @@
+# Example configuration demonstrating custom prompts feature
+provider:
+  type: linear
+  project_id: "proj-123"
+  poll_interval_seconds: 60
+  statuses:
+    ready: "Todo"
+    in_progress: "In Progress"
+    code_review: "Code Review"
+    verification: "Verification"
+    failed: "Canceled"
+
+repo:
+  path: "/path/to/repo"
+
+# Custom prompts prepended to executor runs
+prompts:
+  # Prompt prepended when implementing a ticket
+  implement: |
+    Working on {id}: {raw_title}
+    
+    Project conventions:
+    - Follow the coding standards in AGENTS.md
+    - Run `bun typecheck && bun test` before finishing
+    - Write clear, concise commit messages
+    
+    Date: {date}
+    Branch: {branch}
+
+  # Prompt prepended when addressing PR feedback
+  feedback: |
+    Addressing feedback on {id}.
+    
+    Guidelines:
+    - Keep changes minimal and focused
+    - Only address the specific feedback provided
+    - Don't refactor unrelated code
+    
+    Branch: {branch}
+
+hooks:
+  pre:
+    - "echo 'Starting work on {id}'"
+  post:
+    - "echo 'Completed work on {id}'"
+
+executor:
+  type: claude
+  timeout_seconds: 300
+  retries: 0
+
+log:
+  level: info
+
+scm:
+  type: github
+  owner: "myorg"
+  repo: "myrepo"
+
+feedback:
+  comment_prefix: "/agent"
+  poll_interval_seconds: 120

@@ -87,6 +87,7 @@ export function createFeedbackPoller(options: {
       pr,
       config,
       provider,
+      scm,
       prTracker,
     });
   }
@@ -154,7 +155,7 @@ export function createFeedbackPoller(options: {
                 const shortSha = mergeInfo?.sha ? mergeInfo.sha.slice(0, 7) : "unknown";
 
                 const lines: string[] = [
-                  "## Agent Worker — PR Merged",
+                  "## agent-worker: PR Merged",
                   "",
                   `PR #${current.prNumber} has been merged. Ticket moved to **${verificationStatus}**.`,
                 ];
@@ -193,8 +194,12 @@ export function createFeedbackPoller(options: {
             let actionableComments: FeedbackEvent[] = [];
             try {
               const prComments = await scm.getPRComments(current.prNumber, current.lastCommentCheck);
+              const issuePrComments = prComments.filter(c => c.commentType === "issue");
+              const reviewPrComments = prComments.filter(c => c.commentType === "review");
+
               actionableComments = actionableComments.concat(
-                findActionableComments(prComments, prefix).map((c) => ({ ...c, source: "pr" as const }))
+                findActionableComments(issuePrComments, prefix, undefined, "issue").map((c) => ({ ...c, source: "pr" as const })),
+                findActionableComments(reviewPrComments, prefix, undefined, "review").map((c) => ({ ...c, source: "pr" as const })),
               );
             } catch (err) {
               log.debug("Failed to fetch PR comments", {
@@ -208,7 +213,7 @@ export function createFeedbackPoller(options: {
             try {
               const ticketComments = await provider.fetchComments(ticket.id, current.lastCommentCheck);
               actionableComments = actionableComments.concat(
-                findActionableComments(ticketComments, prefix).map((c) => ({ ...c, source: "ticket" as const }))
+                findActionableComments(ticketComments, prefix, undefined, "ticket").map((c) => ({ ...c, source: "ticket" as const }))
               );
             } catch (err) {
               log.debug("Failed to fetch ticket comments", {
@@ -216,6 +221,30 @@ export function createFeedbackPoller(options: {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
+
+            // Filter out PR comments that already have an "eyes" reaction (already being processed)
+            actionableComments = await Promise.all(
+              actionableComments.map(async (comment) => {
+                if (comment.commentType === "ticket") return comment;
+                try {
+                  const seen = await scm.hasCommentReaction(Number(comment.commentId), comment.commentType as "issue" | "review", "eyes", current.prNumber);
+                  if (seen) {
+                    log.debug("Skipping already-seen PR comment", {
+                      ticketId: ticket.identifier,
+                      commentId: comment.commentId,
+                      commentType: comment.commentType,
+                    });
+                    return null;
+                  }
+                } catch (err) {
+                  log.debug("Failed to check comment reaction for dedup", {
+                    commentId: comment.commentId,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+                return comment;
+              }),
+            ).then((results) => results.filter((c): c is FeedbackEvent => c !== null));
 
             if (actionableComments.length > 0) {
               log.info("Actionable feedback found", {

@@ -110,7 +110,7 @@ describe("processTicket", () => {
     expect(transitions).toContain("In Progress");
     expect(transitions).toContain("Canceled");
     expect(comments.length).toBe(1);
-    expect(comments[0]).toContain("Agent Worker Failure");
+    expect(comments[0]).toContain("agent-worker: Task Failed");
     expect(comments[0]).toContain("pre-hook");
   });
 
@@ -211,6 +211,6 @@ describe("processTicket", () => {
     expect(transitions).toContain("Canceled");
     expect(transitions).not.toContain("Code Review");
     expect(comments.length).toBe(1);
-    expect(comments[0]).toContain("Agent Worker Failure");
+    expect(comments[0]).toContain("agent-worker: Task Failed");
   });
 });

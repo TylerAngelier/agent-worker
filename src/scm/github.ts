@@ -24,7 +24,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
   const { owner, repo } = config;
 
   /**
-   * Wrapper for GitHub API requests.
+   * Wrapper for GitHub API GET requests.
    * Injects auth, User-Agent, and Accept headers. Logs request/response timing.
    * @param path - API path appended to repos/{owner}/{repo}
    * @returns Fetch Response
@@ -43,6 +43,36 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
     });
     logger.debug("GitHub API response", { path, status: res.status, durationMs: Date.now() - start });
     if (!res.ok && res.status !== 204) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`GitHub API error ${res.status}: ${text}`);
+    }
+    return res;
+  }
+
+  /**
+   * Wrapper for GitHub API POST requests with a JSON body.
+   * Injects auth, User-Agent, Accept, and Content-Type headers.
+   * @param path - API path appended to repos/{owner}/{repo}
+   * @param body - Object to serialize as JSON request body.
+   * @returns Fetch Response
+   * @throws Error on non-OK status (201 is expected for creates)
+   */
+  async function ghPost(path: string, body: Record<string, unknown>): Promise<Response> {
+    const url = `${GITHUB_API}/repos/${owner}/${repo}${path}`;
+    logger.debug("GitHub API POST request", { path });
+    const start = Date.now();
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+        "User-Agent": "agent-worker",
+      },
+      body: JSON.stringify(body),
+    });
+    logger.debug("GitHub API POST response", { path, status: res.status, durationMs: Date.now() - start });
+    if (!res.ok && res.status !== 201) {
       const text = await res.text().catch(() => "");
       throw new Error(`GitHub API error ${res.status}: ${text}`);
     }
@@ -85,10 +115,20 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       const params = new URLSearchParams();
       params.set("per_page", "100");
       if (since) params.set("since", since);
-      const res = await ghFetch(`/pulls/${prNumber}/comments?${params}`);
-      const comments = (await res.json()) as unknown[];
 
-      const results = (Array.isArray(comments) ? comments : []).map((c) => {
+      // Fetch both review comments (inline code comments) and issue comments
+      // (general PR conversation) since /agent feedback can be posted as either.
+      const [reviewRes, issueRes] = await Promise.all([
+        ghFetch(`/pulls/${prNumber}/comments?${params}`),
+        ghFetch(`/issues/${prNumber}/comments?${params}`),
+      ]);
+
+      const [reviewComments, issueComments] = await Promise.all([
+        reviewRes.json() as Promise<unknown>,
+        issueRes.json() as Promise<unknown>,
+      ]);
+
+      const mapComment = (c: unknown, commentType: "issue" | "review"): PRComment => {
         const comment = c as Record<string, unknown>;
         const user = comment.user as Record<string, unknown> | undefined;
         return {
@@ -96,10 +136,30 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
           author: user?.login as string ?? "unknown",
           body: comment.body as string,
           createdAt: comment.created_at as string,
+          commentType,
         };
+      };
+
+      const reviewResults = (Array.isArray(reviewComments) ? reviewComments : []).map((c) => mapComment(c, "review"));
+      const issueResults = (Array.isArray(issueComments) ? issueComments : []).map((c) => mapComment(c, "issue"));
+
+      // Deduplicate by ID (safety net for overlapping fetches)
+      const seen = new Set<number>();
+      const deduped: PRComment[] = [];
+      for (const c of [...issueResults, ...reviewResults]) {
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          deduped.push(c);
+        }
+      }
+
+      logger.debug("Fetched PR comments", {
+        prNumber,
+        count: deduped.length,
+        reviewCount: reviewResults.length,
+        issueCount: issueResults.length,
       });
-      logger.debug("Fetched PR comments", { prNumber, count: results.length });
-      return results;
+      return deduped;
     },
 
     async isPRMerged(prNumber: number): Promise<boolean> {
@@ -146,6 +206,67 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
           error: err instanceof Error ? err.message : String(err),
         });
         return null;
+      }
+    },
+
+    async hasCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, _prNumber?: number): Promise<boolean> {
+      logger.debug("Checking comment reaction", { commentId, commentType, reaction });
+      try {
+        const basePath = commentType === "issue"
+          ? `/issues/comments/${commentId}/reactions?per_page=100`
+          : `/pulls/comments/${commentId}/reactions?per_page=100`;
+        const res = await ghFetch(basePath);
+        const reactions = (await res.json()) as Record<string, unknown>[];
+        const hasReaction = Array.isArray(reactions) && reactions.some((r) => r.content === reaction);
+        logger.debug("Comment reaction check", { commentId, commentType, reaction, hasReaction });
+        return hasReaction;
+      } catch (err) {
+        logger.debug("Failed to check comment reaction", {
+          commentId,
+          commentType,
+          reaction,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+    },
+
+    async addCommentReaction(commentId: number, commentType: "issue" | "review", reaction: string, _prNumber?: number): Promise<void> {
+      logger.debug("Adding comment reaction", { commentId, commentType, reaction });
+      try {
+        const basePath = commentType === "issue"
+          ? `/issues/comments/${commentId}/reactions`
+          : `/pulls/comments/${commentId}/reactions`;
+        await ghPost(basePath, { content: reaction });
+        logger.debug("Comment reaction added", { commentId, commentType, reaction });
+      } catch (err) {
+        logger.warn("Failed to add comment reaction (best-effort)", {
+          commentId,
+          commentType,
+          reaction,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    async replyToComment(prNumber: number, commentId: number, commentType: "issue" | "review", body: string): Promise<void> {
+      logger.debug("Replying to comment", { prNumber, commentId, commentType });
+      try {
+        if (commentType === "issue") {
+          // Issue comments: post a standalone comment on the issue/PR
+          await ghPost(`/issues/${prNumber}/comments`, { body });
+        } else {
+          // Review comments: post a threaded reply to the review comment
+          await ghPost(`/pulls/${prNumber}/comments/${commentId}/replies`, { body });
+        }
+        logger.debug("Comment reply posted", { prNumber, commentId, commentType });
+      } catch (err) {
+        logger.warn("Failed to reply to comment (best-effort)", {
+          prNumber,
+          commentId,
+          commentType,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     },
   };

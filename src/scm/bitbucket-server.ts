@@ -47,6 +47,22 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
     return res;
   }
 
+  /**
+   * Maps GitHub reaction names to Bitbucket Server emoticon names.
+   */
+  function mapReactionToEmoticon(reaction: string): string {
+    switch (reaction) {
+      case "eyes":
+        return "eyes";
+      case "white_check_mark":
+        return "thumbsup";
+      case "thumbs_down":
+        return "thumbsdown";
+      default:
+        return reaction;
+    }
+  }
+
   return {
     async findPullRequest(branch: string): Promise<PullRequest | null> {
       logger.debug("Finding pull request", { branch });
@@ -105,6 +121,7 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
             author: (author.displayName as string) ?? (author.name as string) ?? "unknown",
             body: comment.text as string,
             createdAt: a.createdDate as string,
+            commentType: "review" as const,
           };
         });
       logger.debug("Fetched PR comments", { prNumber, count: results.length });
@@ -165,6 +182,120 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
           error: err instanceof Error ? err.message : String(err),
         });
         return null;
+      }
+    },
+
+    async hasCommentReaction(commentId: number, _commentType: "issue" | "review", reaction: string, prNumber?: number): Promise<boolean> {
+      logger.debug("Checking comment reaction", { commentId, reaction, prNumber });
+      if (!prNumber) {
+        logger.debug("Cannot check reaction without prNumber, returning false", { commentId });
+        return false;
+      }
+      try {
+        const res = await bbFetch(
+          `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}`
+        );
+        const data = (await res.json()) as Record<string, unknown>;
+        const emoticon = mapReactionToEmoticon(reaction);
+
+        // Check if reactions are embedded in the comment properties
+        const properties = data.properties as Record<string, unknown>[] | undefined;
+        if (Array.isArray(properties)) {
+          const hasReaction = properties.some((p) => {
+            if (p.key !== "reactions") return false;
+            try {
+              const reactions = JSON.parse(String(p.value)) as Record<string, unknown>;
+              return reactions[emoticon] !== undefined;
+            } catch {
+              return false;
+            }
+          });
+          if (hasReaction) {
+            logger.debug("Comment reaction found", { commentId, emoticon });
+            return true;
+          }
+        }
+
+        logger.debug("Comment reaction not found", { commentId, emoticon });
+        return false;
+      } catch (err) {
+        logger.debug("Failed to check comment reaction, returning false", {
+          commentId,
+          reaction,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+    },
+
+    async addCommentReaction(commentId: number, _commentType: "issue" | "review", reaction: string, prNumber?: number): Promise<void> {
+      logger.debug("Adding comment reaction", { commentId, reaction, prNumber });
+      if (!prNumber) {
+        logger.warn("Cannot add reaction without prNumber (best-effort)", { commentId, reaction });
+        return;
+      }
+      try {
+        const emoticon = mapReactionToEmoticon(reaction);
+        const url = `${baseUrl}/rest/comment-likes/latest/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}/reactions/${encodeURIComponent(emoticon)}`;
+        logger.debug("Bitbucket reaction API request", { url });
+        const start = Date.now();
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        logger.debug("Bitbucket reaction API response", { status: res.status, durationMs: Date.now() - start });
+
+        if (res.status === 409) {
+          logger.debug("Reaction already exists", { commentId, emoticon });
+          return;
+        }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Bitbucket reaction API error ${res.status}: ${text}`);
+        }
+        logger.debug("Comment reaction added", { commentId, emoticon });
+      } catch (err) {
+        logger.warn("Failed to add comment reaction (best-effort)", {
+          commentId,
+          reaction,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    async replyToComment(prNumber: number, commentId: number, _commentType: "issue" | "review", body: string): Promise<void> {
+      logger.debug("Replying to comment", { prNumber, commentId });
+      try {
+        const url = `${baseUrl}/rest/api/1.0/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments`;
+        const start = Date.now();
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: body,
+            parent: {
+              id: commentId,
+            },
+          }),
+        });
+        logger.debug("Bitbucket reply API response", { status: res.status, durationMs: Date.now() - start });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Bitbucket reply API error ${res.status}: ${text}`);
+        }
+        logger.debug("Comment reply posted", { prNumber, commentId });
+      } catch (err) {
+        logger.warn("Failed to reply to comment (best-effort)", {
+          prNumber,
+          commentId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     },
   };

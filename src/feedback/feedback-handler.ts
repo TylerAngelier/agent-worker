@@ -172,7 +172,7 @@ export async function processFeedback(options: {
       const sha = await getHeadSha(effectiveCwd);
 
       // Add success reaction and reply on SCM
-      await bestEffortReaction(scm, comment.commentId, comment.commentType, "white_check_mark", pr.number);
+      await bestEffortReaction(scm, comment.commentId, comment.commentType, "+1", pr.number);
       await bestEffortReply(scm, pr.number, comment.commentId, comment.commentType, `Addressed in commit \`${sha}\`.`);
 
       await provider.postComment(ticket.id, [
@@ -186,7 +186,7 @@ export async function processFeedback(options: {
       const errorSummary = execResult.output.slice(-500);
 
       // Add failure reaction and reply on SCM
-      await bestEffortReaction(scm, comment.commentId, comment.commentType, "thumbs_down", pr.number);
+      await bestEffortReaction(scm, comment.commentId, comment.commentType, "-1", pr.number);
       await bestEffortReply(scm, pr.number, comment.commentId, comment.commentType, [
         "Failed to address this feedback.",
         "",

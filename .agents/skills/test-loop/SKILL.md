@@ -1,3 +1,8 @@
+---
+name: test-loop
+description: Test agent-worker end-to-end by running against a branch/PR. Verifies implementation and feedback loops using tmux session.
+---
+
 # Agent Worker Testing Loop
 
 Test agent-worker end-to-end by running it against a branch/PR and verifying both the implementation and feedback loops.

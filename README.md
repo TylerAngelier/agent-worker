@@ -1,6 +1,7 @@
 # agent-worker
 
 hi
+bye
 
 An autonomous worker agent that picks up tasks from your issue tracker and completes them — without you in the loop.
 

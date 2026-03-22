@@ -146,12 +146,19 @@ export function createFeedbackPoller(options: {
               try {
                 const pr = await scm.findPullRequest(branch);
                 if (pr) {
+                  // Preserve the existing lastCommentCheck (from when the ticket was
+                  // first tracked) so that comments posted between PR creation and
+                  // this discovery cycle are not silently dropped. When there is no
+                  // existing entry (fresh restart), omit `since` entirely by using an
+                  // empty string — the reaction-based dedup handles preventing
+                  // reprocessing of already-addressed comments.
+                  const existing = prTracker.get(ticket.id);
                   prTracker.track({
                     ticketId: ticket.id,
                     ticketIdentifier: ticket.identifier,
                     prNumber: pr.number,
                     branch,
-                    lastCommentCheck: new Date().toISOString(),
+                    lastCommentCheck: existing?.lastCommentCheck ?? "",
                   });
                   log.info("Tracking PR for ticket", {
                     ticketId: ticket.identifier,

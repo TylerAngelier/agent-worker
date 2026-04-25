@@ -226,30 +226,31 @@ describe("removeWorktree", () => {
   });
 
   test("deletes branch by default after removing worktree", async () => {
-    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
-    const wt = await createWorktree(repoDir, "test-default-branch");
-    await removeWorktree(repoDir, wt, "test-default-branch");
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/worktree.ts");
+    const handle = await createWorktree(repoDir, "test-default-branch");
+    await removeWorktree(repoDir, handle);
 
     // Branch should be gone
     const branches = execSync("git branch --list test-default-branch", { cwd: repoDir }).toString().trim();
     expect(branches).toBe("");
   });
 
-  test("deletes branch when deleteBranch is undefined", async () => {
-    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
-    const wt = await createWorktree(repoDir, "test-undefined-branch");
-    await removeWorktree(repoDir, wt, "test-undefined-branch", undefined);
+  test("deletes branch when createdBranch=true and no options", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/worktree.ts");
+    const handle = await createWorktree(repoDir, "test-undefined-branch");
+    await removeWorktree(repoDir, handle, undefined);
 
     const branches = execSync("git branch --list test-undefined-branch", { cwd: repoDir }).toString().trim();
     expect(branches).toBe("");
   });
 
-  test("preserves branch when deleteBranch is false", async () => {
-    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
-    const wt = await createWorktree(repoDir, "test-keep-branch");
-    await removeWorktree(repoDir, wt, "test-keep-branch", { deleteBranch: false });
+  test("preserves branch when createdBranch=false", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/worktree.ts");
+    execSync("git branch test-keep-branch", { cwd: repoDir });
+    const handle = await createWorktree(repoDir, "test-keep-branch", { createBranch: false });
+    await removeWorktree(repoDir, handle);
 
-    // Branch should still exist
+    // Branch should still exist (createdBranch=false, so no deletion by default)
     const branches = execSync("git branch --list test-keep-branch", { cwd: repoDir }).toString().trim();
     expect(branches).toContain("test-keep-branch");
 
@@ -258,9 +259,10 @@ describe("removeWorktree", () => {
   });
 
   test("deletes branch when deleteBranch is true", async () => {
-    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
-    const wt = await createWorktree(repoDir, "test-explicit-delete");
-    await removeWorktree(repoDir, wt, "test-explicit-delete", { deleteBranch: true });
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/worktree.ts");
+    execSync("git branch test-explicit-delete", { cwd: repoDir });
+    const handle = await createWorktree(repoDir, "test-explicit-delete", { createBranch: false });
+    await removeWorktree(repoDir, handle, { deleteBranch: true });
 
     const branches = execSync("git branch --list test-explicit-delete", { cwd: repoDir }).toString().trim();
     expect(branches).toBe("");

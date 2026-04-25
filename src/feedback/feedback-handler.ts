@@ -6,7 +6,8 @@ import type { CodeExecutor } from "../pipeline/executor.ts";
 import type { PullRequest, ScmProvider } from "../scm/types.ts";
 import type { FeedbackEvent } from "./comment-filter.ts";
 import type { PRTracker } from "./tracking.ts";
-import { createWorktree, removeWorktree } from "../pipeline/pipeline.ts";
+import type { WorktreeHandle } from "../pipeline/worktree.ts";
+import { createWorktree, removeWorktree } from "../pipeline/worktree.ts";
 import { buildTaskVars, interpolate } from "../pipeline/interpolate.ts";
 import { runHooks } from "../pipeline/hook-runner.ts";
 import { log } from "../logger.ts";
@@ -118,14 +119,14 @@ export async function processFeedback(options: {
   const vars = buildTaskVars(ticket);
   const useWorktree = executor.needsWorktree;
   let effectiveCwd = config.repo.path;
-  let worktreePath: string | null = null;
+  let handle: WorktreeHandle | null = null;
 
   if (useWorktree) {
     try {
-      worktreePath = await createWorktree(config.repo.path, vars.branch, {
+      handle = await createWorktree(config.repo.path, vars.branch, {
         createBranch: false,
       });
-      effectiveCwd = worktreePath;
+      effectiveCwd = handle.path;
     } catch (err) {
       log.error("Failed to create worktree for feedback", {
         ticketId: ticket.identifier,
@@ -222,8 +223,8 @@ export async function processFeedback(options: {
       prTracker.track({ ...tracked, lastCommentCheck: new Date().toISOString() });
     }
   } finally {
-    if (worktreePath) {
-      await removeWorktree(config.repo.path, worktreePath, vars.branch, { deleteBranch: false });
+    if (handle) {
+      await removeWorktree(config.repo.path, handle);
     }
   }
 }

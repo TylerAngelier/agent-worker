@@ -1,10 +1,10 @@
 /**
  * @module src/pipeline/pipeline — Pipeline orchestration for worktree lifecycle, hooks, and executor invocation.
  */
-import { join } from "path";
-import { tmpdir } from "os";
 import type { Ticket } from "../providers/types.ts";
 import type { CodeExecutor } from "./executor.ts";
+import type { WorktreeHandle } from "./worktree.ts";
+import { createWorktree, removeWorktree } from "./worktree.ts";
 import { buildTaskVars, interpolate } from "./interpolate.ts";
 import { runHooks } from "./hook-runner.ts";
 import { log } from "../logger.ts";
@@ -19,99 +19,6 @@ export type PipelineResult = {
   /** Executor output text on success. */
   output?: string;
 };
-
-/**
- * Creates an isolated git worktree in the temp directory.
- * Defaults to creating a new branch from main.
- * @param repoPath - Path to the git repository.
- * @param branch - Name for the worktree branch.
- * @param options.createBranch - Whether to create a new branch (default `true`).
- * @returns Absolute path to the worktree directory.
- * @throws Error if git worktree add fails.
- */
-export async function createWorktree(
-  repoPath: string,
-  branch: string,
-  options?: { createBranch?: boolean },
-): Promise<string> {
-  const worktreePath = join(tmpdir(), `agent-worker-${branch}`);
-  const createBranch = options?.createBranch !== false;
-  log.info("Creating worktree", { worktreePath, branch, createBranch });
-
-  const spawnArgs = createBranch
-    ? ["git", "worktree", "add", "-b", branch, worktreePath, "main"]
-    : ["git", "worktree", "add", worktreePath, branch];
-  const proc = Bun.spawn(spawnArgs, {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [exitCode, _, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  if (exitCode !== 0) {
-    throw new Error(`Failed to create worktree: ${stderr.trim()}`);
-  }
-
-  return worktreePath;
-}
-
-/**
- * Removes a git worktree and deletes the associated branch.
- * Logs warnings on failure but does not throw.
- * @param repoPath - Path to the git repository.
- * @param worktreePath - Absolute path to the worktree directory.
- * @param branch - Branch name to delete after removal.
- */
-export async function removeWorktree(
-  repoPath: string,
-  worktreePath: string,
-  branch: string,
-  options?: { deleteBranch?: boolean },
-): Promise<void> {
-  log.info("Removing worktree", { worktreePath });
-
-  const proc = Bun.spawn(["git", "worktree", "remove", "--force", worktreePath], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const [exitCode, _, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  if (exitCode !== 0) {
-    log.warn("Failed to remove worktree", { worktreePath, error: stderr.trim() });
-    return;
-  }
-
-  // Delete the branch we created so subsequent runs don't fail with "branch already exists".
-  // Skip when deleteBranch is explicitly false (e.g. feedback handler preserving the PR branch).
-  if (options?.deleteBranch !== false) {
-    const deleteProc = Bun.spawn(["git", "branch", "-D", branch], {
-      cwd: repoPath,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    const [deleteExitCode, __, deleteStderr] = await Promise.all([
-      deleteProc.exited,
-      new Response(deleteProc.stdout).text(),
-      new Response(deleteProc.stderr).text(),
-    ]);
-
-    if (deleteExitCode !== 0) {
-      log.warn("Failed to delete branch", { branch, error: deleteStderr.trim() });
-    }
-  }
-}
 
 /**
  * Orchestrates the full pipeline lifecycle for a ticket: optionally creates a worktree,
@@ -140,14 +47,14 @@ export async function executePipeline(options: {
 
   const useWorktree = executor.needsWorktree;
   let effectiveCwd = repoCwd;
-  let worktreePath: string | null = null;
+  let handle: WorktreeHandle | null = null;
 
   // Create an isolated worktree if the executor needs one (e.g. Claude).
   // Codex manages its own worktrees internally so we skip this.
   if (useWorktree) {
     try {
-      worktreePath = await createWorktree(repoCwd, vars.branch);
-      effectiveCwd = worktreePath;
+      handle = await createWorktree(repoCwd, vars.branch);
+      effectiveCwd = handle.path;
     } catch (err) {
       return {
         success: false,
@@ -203,8 +110,8 @@ export async function executePipeline(options: {
 
     return { success: true, output: execResult.output };
   } finally {
-    if (worktreePath) {
-      await removeWorktree(repoCwd, worktreePath, vars.branch);
+    if (handle) {
+      await removeWorktree(repoCwd, handle);
     }
   }
 }

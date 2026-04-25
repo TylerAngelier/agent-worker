@@ -57,7 +57,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
     executor: { type: "claude", dangerously_skip_permissions: true, timeout_seconds: 5, retries: 0 },
     log: { level: "info", redact: [] },
     scm: { type: "github", owner: "myorg", repo: "myrepo" },
-    feedback: { comment_prefix: "/agent", poll_interval_seconds: 120 },
+    feedback: { comment_prefix: "/agent", poll_interval_seconds: 120, max_concurrent: 1 },
     prompts: {},
     ...overrides,
   };

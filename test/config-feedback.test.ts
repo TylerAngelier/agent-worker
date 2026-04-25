@@ -43,6 +43,7 @@ scm:
     const config = loadConfig(writeConfig(baseYaml));
     expect(config.feedback.comment_prefix).toBe("/agent");
     expect(config.feedback.poll_interval_seconds).toBe(120);
+    expect(config.feedback.max_concurrent).toBe(1);
   });
 
   test("parses feedback config with custom values", () => {
@@ -51,10 +52,12 @@ ${baseYaml}
 feedback:
   comment_prefix: "/bot"
   poll_interval_seconds: 300
+  max_concurrent: 3
 `;
     const config = loadConfig(writeConfig(yaml));
     expect(config.feedback.comment_prefix).toBe("/bot");
     expect(config.feedback.poll_interval_seconds).toBe(300);
+    expect(config.feedback.max_concurrent).toBe(3);
   });
 
   test("parses GitHub SCM config", () => {

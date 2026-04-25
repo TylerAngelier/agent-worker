@@ -168,7 +168,8 @@ export type ScmConfig = z.infer<typeof ScmSchema>;
 const FeedbackSchema = z.object({
   comment_prefix: z.string().default("/agent"),
   poll_interval_seconds: z.number().positive().default(120),
-}).default({ comment_prefix: "/agent", poll_interval_seconds: 120 });
+  max_concurrent: z.number().int().positive().default(1),
+}).default({ comment_prefix: "/agent", poll_interval_seconds: 120, max_concurrent: 1 });
 
 /** Config for the feedback polling system, including comment prefix and poll interval. */
 export type FeedbackConfig = z.infer<typeof FeedbackSchema>;

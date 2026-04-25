@@ -66,6 +66,8 @@ export function createFeedbackPoller(options: {
   const intervalMs = config.feedback.poll_interval_seconds * 1000;
 
   const resolved = new Set<string>(); // ticket IDs already transitioned to verification
+  const maxConcurrent = config.feedback.max_concurrent;
+  let activeCount = 0;
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
 
@@ -120,6 +122,189 @@ export function createFeedbackPoller(options: {
     });
   }
 
+  /**
+   * Processes a single ticket end-to-end: discovers its PR, checks merge status,
+   * fetches actionable comments, and dispatches feedback sequentially.
+   * Called at most `maxConcurrent` times concurrently per poll cycle.
+   *
+   * @param ticket - The ticket to process.
+   */
+  async function processTicket(
+    ticket: Awaited<ReturnType<TicketProvider["fetchTicketsByStatus"]>>[number],
+  ): Promise<void> {
+    // Discover PR by branch name if not yet tracked
+    const tracked = prTracker.get(ticket.id);
+
+    if (!tracked || tracked.prNumber === 0) {
+      const branch = config.repo.branch_template.replace("{id}", ticket.identifier);
+      try {
+        const pr = await scm.findPullRequest(branch);
+        if (pr) {
+          // Preserve the existing lastCommentCheck (from when the ticket was
+          // first tracked) so that comments posted between PR creation and
+          // this discovery cycle are not silently dropped. When there is no
+          // existing entry (fresh restart), omit `since` entirely by using an
+          // empty string — the reaction-based dedup handles preventing
+          // reprocessing of already-addressed comments.
+          const existing = prTracker.get(ticket.id);
+          prTracker.track({
+            ticketId: ticket.id,
+            ticketIdentifier: ticket.identifier,
+            prNumber: pr.number,
+            branch,
+            lastCommentCheck: existing?.lastCommentCheck ?? "",
+          });
+          log.info("Tracking PR for ticket", {
+            ticketId: ticket.identifier,
+            prNumber: pr.number,
+          });
+        }
+      } catch (err) {
+        log.debug("Failed to find PR for ticket", {
+          ticketId: ticket.identifier,
+          branch,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      // Re-read tracked entry so the merge check below runs immediately
+      const updated = prTracker.get(ticket.id);
+      if (!updated) return;
+    }
+
+    // Re-fetch tracked after possible discovery
+    const current = prTracker.get(ticket.id)!;
+
+    // Check if PR is merged
+    try {
+      const merged = await scm.isPRMerged(current.prNumber);
+      if (merged) {
+        await provider.transitionStatus(ticket.id, verificationStatus);
+
+        const mergeInfo = await scm.getPRMergeInfo(current.prNumber);
+        const shortSha = mergeInfo?.sha ? mergeInfo.sha.slice(0, 7) : "unknown";
+
+        const lines: string[] = [
+          "## agent-worker: PR Merged",
+          "",
+          `PR #${current.prNumber} has been merged. Ticket moved to **${verificationStatus}**.`,
+        ];
+
+        if (mergeInfo) {
+          lines.push(
+            "",
+            `**PR:** ${mergeInfo.url}`,
+            `**Commit:** \`${shortSha}\``,
+          );
+          if (mergeInfo.summary) {
+            lines.push(`**Summary:** ${mergeInfo.summary}`);
+          }
+        }
+
+        await provider.postComment(ticket.id, lines.join("\n"));
+
+        log.info("PR merged, ticket moved to verification", {
+          ticketId: ticket.identifier,
+          prNumber: current.prNumber,
+          sha: mergeInfo?.sha ?? "unknown",
+        });
+        prTracker.untrack(ticket.id);
+        resolved.add(ticket.id);
+        return;
+      }
+    } catch (err) {
+      log.debug("Failed to check PR merge status", {
+        ticketId: ticket.identifier,
+        prNumber: current.prNumber,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Fetch new PR comments
+    let actionableComments: FeedbackEvent[] = [];
+    try {
+      const prComments = await scm.getPRComments(current.prNumber, current.lastCommentCheck);
+      const issuePrComments = prComments.filter(c => c.commentType === "issue");
+      const reviewPrComments = prComments.filter(c => c.commentType === "review");
+
+      actionableComments = actionableComments.concat(
+        findActionableComments(issuePrComments, prefix, undefined, "issue").map((c) => ({ ...c, source: "pr" as const })),
+        findActionableComments(reviewPrComments, prefix, undefined, "review").map((c) => ({ ...c, source: "pr" as const })),
+      );
+    } catch (err) {
+      log.debug("Failed to fetch PR comments", {
+        ticketId: ticket.identifier,
+        prNumber: current.prNumber,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Fetch new ticket comments
+    try {
+      const ticketComments = await provider.fetchComments(ticket.id, current.lastCommentCheck);
+      actionableComments = actionableComments.concat(
+        findActionableComments(ticketComments, prefix, undefined, "ticket").map((c) => ({ ...c, source: "ticket" as const }))
+      );
+    } catch (err) {
+      log.debug("Failed to fetch ticket comments", {
+        ticketId: ticket.identifier,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Filter out PR comments that already have an agent reaction (eyes, +1, or -1)
+    actionableComments = await Promise.all(
+      actionableComments.map(async (comment) => {
+        if (comment.commentType === "ticket") return comment;
+        try {
+          const seen = await hasAgentReaction(scm, Number(comment.commentId), comment.commentType as "issue" | "review", current.prNumber);
+          if (seen) {
+            log.debug("Skipping already-seen PR comment", {
+              ticketId: ticket.identifier,
+              commentId: comment.commentId,
+              commentType: comment.commentType,
+            });
+            return null;
+          }
+        } catch (err) {
+          log.debug("Failed to check comment reaction for dedup", {
+            commentId: comment.commentId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return comment;
+      }),
+    ).then((results) => results.filter((c): c is FeedbackEvent => c !== null));
+
+    if (actionableComments.length > 0) {
+      log.info("Actionable feedback found", {
+        ticketId: ticket.identifier,
+        count: actionableComments.length,
+      });
+      for (const comment of actionableComments) {
+        // Errors are caught per-comment so that a failure on one comment does not
+        // prevent processing of subsequent comments for the same ticket.
+        try {
+          await processActionableFeedback(ticket, comment);
+        } catch (err) {
+          log.error("Feedback processing failed", {
+            ticketId: ticket.identifier,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
+    // Advance lastCommentCheck after all comments for this ticket have been
+    // dispatched. Because tickets are processed independently (up to
+    // maxConcurrent concurrently), lastCommentCheck is only advanced for tickets
+    // that were fully processed — deferred tickets retain their previous
+    // lastCommentCheck so their comments are not lost.
+    const updated = prTracker.get(ticket.id);
+    if (updated) {
+      prTracker.track({ ...updated, lastCommentCheck: new Date().toISOString() });
+    }
+  }
+
   return {
     async start() {
       isRunning = true;
@@ -131,6 +316,7 @@ export function createFeedbackPoller(options: {
       while (isRunning) {
         try {
           const tickets = await provider.fetchTicketsByStatus(codeReviewStatus);
+          const inFlight: Promise<void>[] = [];
 
           for (const ticket of tickets) {
             if (resolved.has(ticket.id)) {
@@ -138,165 +324,31 @@ export function createFeedbackPoller(options: {
               continue;
             }
 
-            const tracked = prTracker.get(ticket.id);
-
-            if (!tracked || tracked.prNumber === 0) {
-              // Discover PR by branch name
-              const branch = config.repo.branch_template.replace("{id}", ticket.identifier);
-              try {
-                const pr = await scm.findPullRequest(branch);
-                if (pr) {
-                  // Preserve the existing lastCommentCheck (from when the ticket was
-                  // first tracked) so that comments posted between PR creation and
-                  // this discovery cycle are not silently dropped. When there is no
-                  // existing entry (fresh restart), omit `since` entirely by using an
-                  // empty string — the reaction-based dedup handles preventing
-                  // reprocessing of already-addressed comments.
-                  const existing = prTracker.get(ticket.id);
-                  prTracker.track({
-                    ticketId: ticket.id,
-                    ticketIdentifier: ticket.identifier,
-                    prNumber: pr.number,
-                    branch,
-                    lastCommentCheck: existing?.lastCommentCheck ?? "",
-                  });
-                  log.info("Tracking PR for ticket", {
-                    ticketId: ticket.identifier,
-                    prNumber: pr.number,
-                  });
-                }
-              } catch (err) {
-                log.debug("Failed to find PR for ticket", {
-                  ticketId: ticket.identifier,
-                  branch,
-                  error: err instanceof Error ? err.message : String(err),
-                });
-              }
-              // Re-read tracked entry so the merge check below runs immediately
-              const updated = prTracker.get(ticket.id);
-              if (!updated) continue;
-            }
-
-            // Re-fetch tracked after possible discovery
-            const current = prTracker.get(ticket.id)!;
-
-            // Check if PR is merged
-            try {
-              const merged = await scm.isPRMerged(current.prNumber);
-              if (merged) {
-                await provider.transitionStatus(ticket.id, verificationStatus);
-
-                const mergeInfo = await scm.getPRMergeInfo(current.prNumber);
-                const shortSha = mergeInfo?.sha ? mergeInfo.sha.slice(0, 7) : "unknown";
-
-                const lines: string[] = [
-                  "## agent-worker: PR Merged",
-                  "",
-                  `PR #${current.prNumber} has been merged. Ticket moved to **${verificationStatus}**.`,
-                ];
-
-                if (mergeInfo) {
-                  lines.push(
-                    "",
-                    `**PR:** ${mergeInfo.url}`,
-                    `**Commit:** \`${shortSha}\``,
-                  );
-                  if (mergeInfo.summary) {
-                    lines.push(`**Summary:** ${mergeInfo.summary}`);
-                  }
-                }
-
-                await provider.postComment(ticket.id, lines.join("\n"));
-
-                log.info("PR merged, ticket moved to verification", {
-                  ticketId: ticket.identifier,
-                  prNumber: current.prNumber,
-                  sha: mergeInfo?.sha ?? "unknown",
-                });
-                prTracker.untrack(ticket.id);
-                resolved.add(ticket.id);
-                continue;
-              }
-            } catch (err) {
-              log.debug("Failed to check PR merge status", {
+            // Concurrency gate: defer tickets that exceed the limit.
+            // Deferred tickets are not processed this cycle; their lastCommentCheck
+            // is not advanced, so their comments remain visible for the next cycle.
+            if (activeCount >= maxConcurrent) {
+              log.debug("Deferring ticket — max concurrency reached", {
                 ticketId: ticket.identifier,
-                prNumber: current.prNumber,
-                error: err instanceof Error ? err.message : String(err),
+                activeCount,
+                maxConcurrent,
               });
+              continue;
             }
 
-            // Fetch new PR comments
-            let actionableComments: FeedbackEvent[] = [];
-            try {
-              const prComments = await scm.getPRComments(current.prNumber, current.lastCommentCheck);
-              const issuePrComments = prComments.filter(c => c.commentType === "issue");
-              const reviewPrComments = prComments.filter(c => c.commentType === "review");
-
-              actionableComments = actionableComments.concat(
-                findActionableComments(issuePrComments, prefix, undefined, "issue").map((c) => ({ ...c, source: "pr" as const })),
-                findActionableComments(reviewPrComments, prefix, undefined, "review").map((c) => ({ ...c, source: "pr" as const })),
-              );
-            } catch (err) {
-              log.debug("Failed to fetch PR comments", {
-                ticketId: ticket.identifier,
-                prNumber: current.prNumber,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-
-            // Fetch new ticket comments
-            try {
-              const ticketComments = await provider.fetchComments(ticket.id, current.lastCommentCheck);
-              actionableComments = actionableComments.concat(
-                findActionableComments(ticketComments, prefix, undefined, "ticket").map((c) => ({ ...c, source: "ticket" as const }))
-              );
-            } catch (err) {
-              log.debug("Failed to fetch ticket comments", {
-                ticketId: ticket.identifier,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-
-            // Filter out PR comments that already have an agent reaction (eyes, +1, or -1)
-            actionableComments = await Promise.all(
-              actionableComments.map(async (comment) => {
-                if (comment.commentType === "ticket") return comment;
-                try {
-                  const seen = await hasAgentReaction(scm, Number(comment.commentId), comment.commentType as "issue" | "review", current.prNumber);
-                  if (seen) {
-                    log.debug("Skipping already-seen PR comment", {
-                      ticketId: ticket.identifier,
-                      commentId: comment.commentId,
-                      commentType: comment.commentType,
-                    });
-                    return null;
-                  }
-                } catch (err) {
-                  log.debug("Failed to check comment reaction for dedup", {
-                    commentId: comment.commentId,
-                    error: err instanceof Error ? err.message : String(err),
-                  });
-                }
-                return comment;
-              }),
-            ).then((results) => results.filter((c): c is FeedbackEvent => c !== null));
-
-            if (actionableComments.length > 0) {
-              log.info("Actionable feedback found", {
-                ticketId: ticket.identifier,
-                count: actionableComments.length,
-              });
-              for (const comment of actionableComments) {
-                await processActionableFeedback(ticket, comment);
-              }
-            }
-
-            // Update lastCommentCheck regardless
-            const updated = prTracker.get(ticket.id);
-            if (updated) {
-              prTracker.track({ ...updated, lastCommentCheck: new Date().toISOString() });
-            }
+            activeCount++;
+            // processTicket is awaited via Promise.allSettled below, so
+            // errors inside processTicket do not crash the poll cycle.
+            // .finally() ensures activeCount is always decremented.
+            const p = processTicket(ticket).finally(() => {
+              activeCount--;
+            });
+            inFlight.push(p);
           }
+
+          // Wait for all in-flight ticket processing to settle before
+          // starting the next poll cycle. This prevents overlapping work.
+          await Promise.allSettled(inFlight);
         } catch (err) {
           log.error("Feedback poll cycle failed", {
             error: err instanceof Error ? err.message : String(err),

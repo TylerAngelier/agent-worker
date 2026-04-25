@@ -57,48 +57,60 @@ Contract and implementations for dispatching work to coding agents.
 
 - `CodeExecutor` interface (`executor.ts`) — `name`, `needsWorktree`, `run`
 - `ExecutorResult` type (`executor.ts`) — success, output, timedOut, exitCode
-- `createExecutor()` factory (`executor.ts`) — selects implementation by config type
+- `createExecutor()` factory (`executor.ts`) — selects implementation by config type. Container executor wiring passes `permissions_flag` from config.
+- `spawnOrError()` utility (`executor.ts`) — attempts to spawn a process, catching ENOENT (binary not found)
 - `streamToLines()` utility (`executor.ts`) — shared streaming helper for all executors
-- Implementations: `claude-executor.ts`, `codex-executor.ts`, `opencode-executor.ts`, `pi-executor.ts`
-- Pipeline orchestration (`pipeline.ts`) — worktree lifecycle (`createWorktree`, `removeWorktree`), pre/post hooks, executor invocation. `createWorktree` accepts `options?: { createBranch?: boolean }` to checkout an existing branch instead of creating a new one.
+- Implementations: `claude-executor.ts`, `codex-executor.ts`, `opencode-executor.ts`, `pi-executor.ts`, `docker-executor.ts`
+- Worktree lifecycle (`worktree.ts`) — `WorktreeHandle` type, `createWorktree` (argv-based git, configurable `baseBranch`), `removeWorktree` (defaults `deleteBranch` to `handle.createdBranch`)
+- Pipeline orchestration (`pipeline.ts`) — imports from `worktree.ts`, pre/post hooks, executor invocation
 - Hook execution (`hook-runner.ts`) — runs shell commands sequentially
-- Template interpolation (`interpolate.ts`) — replaces template variables in hook commands: `{id}`, `{title}`, `{raw_title}`, `{branch}`, `{worktree}`, `{date}`
+- Template interpolation (`interpolate.ts`) — replaces template variables in hook commands: `{id}`, `{title}`, `{raw_title}`, `{branch}`, `{worktree}`, `{date}`. `buildTaskVars` accepts optional `branchTemplate` parameter.
 - **Rule:** Executor implementations must not import from `scheduler.ts`, `poller.ts`, `feedback/`, or `index.ts`.
 
 ### SCM SPI (`src/scm/`)
 
 Contract and implementations for interacting with source control platforms to manage pull requests.
 
-- `ScmProvider` interface (`types.ts`) — `findPullRequest(branch)`, `getPRComments(prNumber, since?)`, `isPRMerged(prNumber)`
+- `ScmProvider` interface (`types.ts`) — `findPullRequest(branch)`, `getPRComments(prNumber, since?)`, `isPRMerged(prNumber)`, `getPRMergeInfo(prNumber)`, `hasCommentReaction(...)`, `addCommentReaction(...)`, `replyToComment(...)`
 - `PullRequest` type (`types.ts`) — number, url, branch, state
-- `PRComment` type (`types.ts`) — id, author, body, createdAt
+- `PRComment` type (`types.ts`) — id, author, body, createdAt, commentType (`"issue"` | `"review"`)
+- `MergeInfo` type (`types.ts`) — url, sha, summary (metadata about a PR's merge commit)
 - `createScmProvider()` factory (`index.ts`) — selects implementation by `config.scm.type`
 - Implementations: `github.ts` (REST API, `GITHUB_TOKEN` env var), `bitbucket-server.ts` (REST API, `BITBUCKET_TOKEN` env var)
+- Both implementations use `createHttpClient` from `internal/http.ts` for HTTP requests with automatic backoff
 - **Rule:** SCM implementations must not import from `pipeline/`, `feedback/`, `scheduler.ts`, `poller.ts`, or `index.ts`.
 
 ### Application Services (`src/`)
 
 Orchestration logic that coordinates providers, executors, and SCM.
 
-- `scheduler.ts` — claims a ticket, runs the pipeline with retries, updates ticket status, posts structured comments to the ticket (success → "In Code Review" with last 50 lines of output; failure → structured error). Returns `ProcessTicketResult` discriminated union (`{ outcome: "code_review", ticketId, branch }` | `{ outcome: "failed" }`).
+- `scheduler.ts` — claims a ticket, runs the pipeline with retries, updates ticket status, posts structured comments to the ticket (success → "In Code Review" with last 50 lines of output; failure → structured error). Passes `baseBranch` and `branchTemplate` from config to the pipeline. Returns `ProcessTicketResult` discriminated union (`{ outcome: "code_review", ticketId, branch }` | `{ outcome: "failed" }`).
 - `poller.ts` — polling loop with interruptible sleep and signal handling. Processes one ticket per cycle.
-- `feedback/tracking.ts` — `PRTracker` interface and `createPRTracker()` — in-memory map of ticketId → PR metadata (prNumber, branch, lastCommentCheck).
-- `feedback/comment-filter.ts` — `FeedbackEvent` type and `findActionableComments()` — filters comments by a configurable prefix and excludes self-authored comments.
-- `feedback/feedback-handler.ts` — `processFeedback()` — checks out the existing PR branch via worktree, runs the executor with a feedback prompt, runs post-hooks, and posts results back to the ticket.
-- `feedback/feedback-poller.ts` — `createFeedbackPoller()` — long-running poll loop that discovers PRs for tickets in code_review status, checks for PR merges (transitions ticket to verification), fetches actionable comments from both PR and ticket, and dispatches them to `processFeedback()`.
-- **Rule:** Feedback modules may import from `pipeline/` (worktree lifecycle, hooks, interpolation, executor factory), `providers/` (ticket types), and `scm/` (PR types). They must not import from `scheduler.ts`, `poller.ts`, or `index.ts`.
+- `feedback/tracking.ts` — `PRTracker` interface, `TrackedPR` type, and `createPRTracker(options?)` factory. File-backed persistence with atomic writes (write temp + rename) when `filePath` is provided; in-memory `Map` when omitted. File format: `{ version: 1, entries: { [ticketId]: TrackedPR } }`. Exposes `getAll()` for iterating all tracked entries.
+- `feedback/comment-filter.ts` — `FeedbackEvent` type (includes `source: "pr" | "ticket"` and `commentType: "issue" | "review" | "ticket"` fields) and `findActionableComments()` — filters comments by a configurable prefix and excludes self-authored comments.
+- `feedback/steps.ts` — `FeedbackState` discriminated union, `FeedbackContext`, `ProcessResult`, `runFeedbackPipeline()`, and `runStep()`. State machine with explicit transitions: discover_pr → check_merge → collect_feedback → dedupe → process → mark_outcome → done.
+- `feedback/reaction-utils.ts` — `hasAgentReaction()` and `AGENT_REACTIONS` (`["eyes", "+1", "-1"]`). Used for reaction-based deduplication so already-processed comments are skipped after restarts.
+- `feedback/feedback-handler.ts` — `processFeedback()` — checks out the existing PR branch via worktree, runs the executor with a feedback prompt, runs post-hooks, adds reactions (eyes → processing, +1 → success, -1 → failure), replies to comments with commit SHA or error, and posts results back to the ticket.
+- `feedback/feedback-poller.ts` — `createFeedbackPoller()` — long-running poll loop that delegates per-ticket processing to `runFeedbackPipeline`. Enforces `max_concurrent` limit with an `activeCount` gate; deferred tickets are skipped until the next cycle.
+- **Rule:** Feedback modules may import from `pipeline/` (worktree lifecycle, hooks, interpolation, executor factory), `providers/` (ticket types), `scm/` (PR types), and `internal/` (HTTP client). They must not import from `scheduler.ts`, `poller.ts`, or `index.ts`.
 
 ### Infrastructure (`src/`)
 
 Cross-cutting concerns with no domain logic.
 
-- `config.ts` — YAML config loading and Zod validation. Config sections: `provider`, `repo`, `hooks`, `executor`, `log`, `scm`, `feedback`. Status schema includes: `ready`, `in_progress`, `code_review`, `verification`, `failed`.
+- `config.ts` — YAML config loading and Zod validation. Config sections: `provider`, `repo`, `hooks`, `prompts`, `executor`, `log`, `scm`, `feedback`. Status schema includes: `ready`, `in_progress`, `code_review`, `verification`, `failed`.
 - `logger.ts` — module-level singleton logger. `initLogger()` called once at startup from `index.ts`; all other modules import the `log` singleton. Supports child loggers via `log.child(component)` for component tagging (e.g., `[provider:linear]`). Exports `time()` utility for measuring async operation durations. `createLogger()` is available for tests that need an isolated logger. Falls back to a no-op logger if accessed before `initLogger()` is called.
 - `format.ts` — terminal colors, splash banner, and console line formatting (including component tags)
 
+### Internal (`src/internal/`)
+
+Shared infrastructure used by multiple SPI layers. Lower-level than `src/` infrastructure; never imports from providers, pipeline, scm, or feedback.
+
+- `http.ts` — `HttpClient` interface, `createHttpClient()` factory, and `withBackoff()` utility. Wraps `fetch()` with exponential backoff + jitter on 429/rate-limit, component-tagged logging, default header injection, and JSON parsing. Used by all provider and SCM implementations.
+
 ### Entry Point (`src/index.ts`)
 
-Wires all components together. Parses CLI args (`--config <path>`, `--debug`, `--version`), loads config, calls `initLogger()`, creates provider/poller/SCM provider/PR tracker/feedback poller, handles `SIGINT` and `SIGTERM`, starts both the main poller and feedback poller concurrently. Seeds the PR tracker when a ticket reaches code_review. This is the only file that should know about every other module.
+Wires all components together. Parses CLI args (`--config <path>`, `--debug`, `--version`), loads config, calls `initLogger()`, creates provider/poller/SCM provider/PR tracker/feedback poller, handles `SIGINT` and `SIGTERM`, starts both the main poller and feedback poller concurrently. Creates the PR tracker with file-backed persistence (`.agent-worker-pr-tracking.json` alongside the config file). Seeds the PR tracker when a ticket reaches code_review. This is the only file that should know about every other module.
 
 ## Config Reference
 
@@ -107,13 +119,13 @@ Key config sections validated by Zod in `src/config.ts`:
 | Section | Required | Description |
 |---|---|---|
 | `provider` | Yes | Ticket provider config (type, credentials, poll interval, statuses) |
-| `repo` | Yes | Local repo path (`path`) |
+| `repo` | Yes | Local repo path (`path`), `base_branch` (default `"main"`), `branch_template` (default `"agent/task-{id}"`) |
 | `hooks` | No | Pre/post shell commands (`pre[]`, `post[]`) |
 | `prompts` | No | Custom prompts prepended to executor runs (`implement`, `feedback`). Supports template tokens: `{id}`, `{title}`, `{raw_title}`, `{branch}`, `{worktree}`, `{date}` |
-| `executor` | No | Executor type, timeout, retries. Defaults: claude, 300s, 0 retries |
+| `executor` | No | Executor type, timeout, retries. Container executor supports `permissions_flag`. Defaults: claude, 300s, 0 retries |
 | `log` | No | Log level, optional file path, and `redact` array for sensitive values |
 | `scm` | Yes | SCM provider config (`type: "github" \| "bitbucket_server"` + provider-specific fields) |
-| `feedback` | No | Feedback processing config. `comment_prefix` (default `"/agent"`), `poll_interval_seconds` (default `120`) |
+| `feedback` | No | Feedback processing config. `comment_prefix` (default `"/agent"`), `poll_interval_seconds` (default `120`), `max_concurrent` (default `1`) |
 
 ## Conventions
 

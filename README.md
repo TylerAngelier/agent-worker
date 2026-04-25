@@ -148,6 +148,8 @@ scm:
 # --- Repository (required) ---
 repo:
   path: "/path/to/your/repo"            # Absolute path to the working repository
+  # base_branch: "main"                  # Base branch for new worktrees (default: "main")
+  # branch_template: "agent/task-{id}"   # Branch naming template (default: "agent/task-{id}")
 
 # --- Hooks (optional) ---
 hooks:
@@ -169,7 +171,7 @@ executor:
   # type: container
   # image: "anthropic/claude-code:latest"
   # command: ["claude", "--print", "-p"]
-  # dangerously_skip_permissions: false   # Insert --dangerously-skip-permissions before prompt
+  # permissions_flag: "--dangerously-skip-permissions"  # Inject auto-approve flag before prompt
   # memory: "4g"                          # Limit container memory (e.g. "4g", "512m")
   # cpus: "2"                             # Limit container CPUs
   # network: "none"                       # Network mode (default: "none")
@@ -185,6 +187,7 @@ executor:
 feedback:
   comment_prefix: "/agent"              # Comment prefix that triggers agent re-runs (default: "/agent")
   poll_interval_seconds: 120            # How often to check for review comments (default: 120)
+  # max_concurrent: 1                   # Max tickets processed concurrently in feedback loop (default: 1)
 
 # --- Logging (optional) ---
 log:
@@ -259,10 +262,11 @@ One ticket is processed at a time:
 After a PR is created, a second poller runs concurrently that:
 
 - Discovers PRs for tickets in `code_review` status
-- Checks whether PRs have been merged (transitions ticket to `verification`)
+- Checks whether PRs have been merged (transitions ticket to `verification` with merge info including commit SHA and URL)
 - Fetches actionable PR and ticket comments prefixed with `/agent`
-- Re-runs the executor on the existing branch to address feedback
-- Posts results back to the ticket
+- Deduplicates comments using reaction-based tracking (eyes/+1/-1 reactions) to avoid reprocessing after restarts
+- Re-runs the executor on the existing branch to address feedback (with configurable concurrency via `feedback.max_concurrent`)
+- Posts results back to the ticket and replies to PR comments with commit SHA or error details
 
 ### Running multiple agents in parallel
 
@@ -357,7 +361,7 @@ executor:
   type: container
   image: "anthropic/claude-code:latest"
   command: ["claude", "--print", "-p"]
-  dangerously_skip_permissions: true
+  permissions_flag: "--dangerously-skip-permissions"
   memory: "4g"
   cpus: "2"
   network: "none"
@@ -393,7 +397,7 @@ executor:
 |---|---|
 | `image` | Docker image to run (required) |
 | `command` | Agent CLI command and arguments (required). The ticket prompt is appended as the final argument. |
-| `dangerously_skip_permissions` | When `true`, inserts `--dangerously-skip-permissions` before the prompt argument. |
+| `permissions_flag` | Executor-specific auto-approve flag injected before the prompt (e.g. `"--dangerously-skip-permissions"` for Claude, `"--yolo"` for Codex). Omit for agents that don't need it (opencode, pi). |
 | `memory` | Limit container memory (e.g. `"4g"`, `"512m"`). Omit for no limit. |
 | `cpus` | Limit container CPUs (e.g. `"2"`, `"0.5"`). Omit for no limit. |
 | `network` | Docker network mode. Defaults to `"none"` for security — set to `"host"` if the agent needs network access. |

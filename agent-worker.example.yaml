@@ -85,6 +85,13 @@ repo:
   # Absolute path to the git repository the agent works in
   path: "/path/to/your/repo"
 
+  # Base branch for new worktrees (default: "main")
+  # base_branch: "main"
+
+  # Branch naming template. {id} is replaced with the ticket identifier.
+  # (default: "agent/task-{id}")
+  # branch_template: "agent/task-{id}"
+
 # --- Hooks (optional) ---
 hooks:
   # Shell commands to run BEFORE the agent is invoked
@@ -127,6 +134,10 @@ feedback:
 
   # How often to poll for review comments, in seconds (default: 120)
   poll_interval_seconds: 120
+
+  # Maximum number of tickets processed concurrently in the feedback loop (default: 1)
+  # Increase to handle multiple PR reviews simultaneously
+  # max_concurrent: 1
 
 # --- Logging (optional) ---
 log:

@@ -30,7 +30,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
         failed: "Canceled",
       },
     },
-    repo: { path: "/tmp" },
+    repo: { path: "/tmp", base_branch: "main", branch_template: "agent/task-{id}" },
     hooks: { pre: [], post: [] },
     executor: { type: "claude", dangerously_skip_permissions: true, timeout_seconds: 5, retries: 0 },
     log: { level: "info", redact: [] },

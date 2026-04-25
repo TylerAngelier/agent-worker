@@ -44,14 +44,15 @@ export function sanitizeTitle(text: string): string {
  * Constructs TaskVars from a Ticket.
  * @param ticket - The ticket to derive variables from.
  * @param worktree - Absolute path to the worktree directory (defaults to empty string).
+ * @param branchTemplate - Branch name template with `{id}` token (defaults to `"agent/task-{id}"`).
  * @returns The populated TaskVars.
  */
-export function buildTaskVars(ticket: Ticket, worktree = ""): TaskVars {
+export function buildTaskVars(ticket: Ticket, worktree = "", branchTemplate = "agent/task-{id}"): TaskVars {
   return {
     id: ticket.identifier,
     title: slugify(ticket.title),
     raw_title: sanitizeTitle(ticket.title),
-    branch: `agent/task-${ticket.identifier}`,
+    branch: branchTemplate.replace("{id}", ticket.identifier),
     worktree,
   };
 }

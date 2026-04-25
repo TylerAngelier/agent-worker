@@ -41,9 +41,11 @@ export async function executePipeline(options: {
   executor: CodeExecutor;
   timeoutMs: number;
   customPrompt?: string;
+  baseBranch?: string;
+  branchTemplate?: string;
 }): Promise<PipelineResult> {
-  const { ticket, preHooks, postHooks, repoCwd, executor, timeoutMs, customPrompt } = options;
-  const vars = buildTaskVars(ticket);
+  const { ticket, preHooks, postHooks, repoCwd, executor, timeoutMs, customPrompt, baseBranch, branchTemplate } = options;
+  const vars = buildTaskVars(ticket, "", branchTemplate);
 
   const useWorktree = executor.needsWorktree;
   let effectiveCwd = repoCwd;
@@ -53,7 +55,7 @@ export async function executePipeline(options: {
   // Codex manages its own worktrees internally so we skip this.
   if (useWorktree) {
     try {
-      handle = await createWorktree(repoCwd, vars.branch);
+      handle = await createWorktree(repoCwd, vars.branch, { baseBranch });
       effectiveCwd = handle.path;
     } catch (err) {
       return {

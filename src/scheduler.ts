@@ -91,6 +91,8 @@ export async function processTicket(options: {
         executor,
         timeoutMs: config.executor.timeout_seconds * 1000,
         customPrompt: config.prompts.implement,
+        baseBranch: config.repo.base_branch,
+        branchTemplate: config.repo.branch_template,
       });
 
       if (lastResult.success) break;
@@ -123,7 +125,7 @@ export async function processTicket(options: {
       await provider.postComment(ticket.id, comment);
 
       log.info("Ticket in code review", { ticketId: ticket.identifier });
-      const branch = buildTaskVars(ticket).branch;
+      const branch = buildTaskVars(ticket, "", config.repo.branch_template).branch;
       return { outcome: "code_review", ticketId: ticket.id, branch };
     } else {
       await provider.transitionStatus(ticket.id, config.provider.statuses.failed);

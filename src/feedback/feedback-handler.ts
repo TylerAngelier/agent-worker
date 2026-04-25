@@ -116,7 +116,7 @@ export async function processFeedback(options: {
     executor = createExecutor(config.executor);
   }
 
-  const vars = buildTaskVars(ticket);
+  const vars = buildTaskVars(ticket, "", config.repo.branch_template);
   const useWorktree = executor.needsWorktree;
   let effectiveCwd = config.repo.path;
   let handle: WorktreeHandle | null = null;

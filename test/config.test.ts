@@ -475,4 +475,35 @@ prompts:
     expect(config.prompts.implement).toBeUndefined();
     expect(config.prompts.feedback).toBeUndefined();
   });
+
+  test("repo defaults base_branch to main and branch_template to agent/task-{id}", () => {
+    const config = loadConfig(writeConfig(minimalProvider));
+    expect(config.repo.base_branch).toBe("main");
+    expect(config.repo.branch_template).toBe("agent/task-{id}");
+  });
+
+  test("repo accepts custom base_branch and branch_template", () => {
+    const yaml = `
+provider:
+  type: linear
+  project_id: "proj-123"
+  statuses:
+    ready: "Todo"
+    in_progress: "In Progress"
+    code_review: "Code Review"
+    verification: "Verification"
+    failed: "Canceled"
+repo:
+  path: "/tmp/repo"
+  base_branch: "develop"
+  branch_template: "feature/{id}"
+scm:
+  type: github
+  owner: "myorg"
+  repo: "myrepo"
+`;
+    const config = loadConfig(writeConfig(yaml));
+    expect(config.repo.base_branch).toBe("develop");
+    expect(config.repo.branch_template).toBe("feature/{id}");
+  });
 });

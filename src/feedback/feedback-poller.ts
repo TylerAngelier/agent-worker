@@ -142,7 +142,7 @@ export function createFeedbackPoller(options: {
 
             if (!tracked || tracked.prNumber === 0) {
               // Discover PR by branch name
-              const branch = `agent/task-${ticket.identifier}`;
+              const branch = config.repo.branch_template.replace("{id}", ticket.identifier);
               try {
                 const pr = await scm.findPullRequest(branch);
                 if (pr) {

@@ -80,6 +80,8 @@ export type ProviderConfig = z.infer<typeof ProviderSchema>;
 
 const RepoSchema = z.object({
   path: z.string(),
+  base_branch: z.string().default("main"),
+  branch_template: z.string().default("agent/task-{id}"),
 });
 
 const HooksSchema = z.object({

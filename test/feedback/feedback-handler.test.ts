@@ -52,7 +52,7 @@ function makeConfig(overrides?: Partial<Config>): Config {
         failed: "Canceled",
       },
     },
-    repo: { path: "/tmp" },
+    repo: { path: "/tmp", base_branch: "main", branch_template: "agent/task-{id}" },
     hooks: { pre: [], post: [] },
     executor: { type: "claude", dangerously_skip_permissions: true, timeout_seconds: 5, retries: 0 },
     log: { level: "info", redact: [] },
@@ -187,7 +187,7 @@ describe("processFeedback", () => {
       execSync("git init -b main && git commit --allow-empty -m 'init'", { cwd: repoDir });
       execSync(`git branch ${branchName}`, { cwd: repoDir });
 
-      const config = makeConfig({ repo: { path: repoDir } });
+      const config = makeConfig({ repo: { path: repoDir, base_branch: "main", branch_template: "agent/task-{id}" } });
 
       const worktreeExecutor: CodeExecutor = {
         name: "mock",

@@ -52,6 +52,45 @@ describe("buildTaskVars", () => {
     expect(vars.branch).toBe("agent/task-ENG-123");
     expect(vars.worktree).toBe("");
   });
+
+  test("uses default branch template when not specified", () => {
+    const vars = buildTaskVars({
+      id: "uuid-456",
+      identifier: "PROJ-42",
+      title: "Some task",
+      description: "",
+    });
+    expect(vars.branch).toBe("agent/task-PROJ-42");
+  });
+
+  test("uses custom branch template", () => {
+    const vars = buildTaskVars(
+      {
+        id: "uuid-789",
+        identifier: "DEV-7",
+        title: "Custom branch",
+        description: "",
+      },
+      "",
+      "feature/{id}",
+    );
+    expect(vars.branch).toBe("feature/DEV-7");
+  });
+
+  test("custom template with worktree", () => {
+    const vars = buildTaskVars(
+      {
+        id: "uuid-000",
+        identifier: "TEST-1",
+        title: "With worktree",
+        description: "",
+      },
+      "/tmp/worktree",
+      "bugfix/{id}-fix",
+    );
+    expect(vars.branch).toBe("bugfix/TEST-1-fix");
+    expect(vars.worktree).toBe("/tmp/worktree");
+  });
 });
 
 describe("interpolate", () => {

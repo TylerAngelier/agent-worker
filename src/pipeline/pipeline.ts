@@ -7,7 +7,9 @@ import type { Ticket } from "../providers/types.ts";
 import type { CodeExecutor } from "./executor.ts";
 import { buildTaskVars, interpolate } from "./interpolate.ts";
 import { runHooks } from "./hook-runner.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("pipeline");
 
 export type PipelineResult = {
   /** Whether the full pipeline completed without errors. */
@@ -39,7 +41,7 @@ export async function createWorktree(
   const cmd = createBranch
     ? `git worktree add -b ${branch} ${worktreePath} main`
     : `git worktree add ${worktreePath} ${branch}`;
-  log.info("Creating worktree", { worktreePath, branch, createBranch });
+  logger.info("Creating worktree", { worktreePath, branch, createBranch });
 
   const proc = Bun.spawn(["sh", "-c", cmd], {
     cwd: repoPath,
@@ -72,7 +74,7 @@ export async function removeWorktree(
   worktreePath: string,
   branch: string,
 ): Promise<void> {
-  log.info("Removing worktree", { worktreePath });
+  logger.info("Removing worktree", { worktreePath });
 
   const proc = Bun.spawn(["sh", "-c", `git worktree remove --force ${worktreePath}`], {
     cwd: repoPath,
@@ -87,7 +89,7 @@ export async function removeWorktree(
   ]);
 
   if (exitCode !== 0) {
-    log.warn("Failed to remove worktree", { worktreePath, error: stderr.trim() });
+    logger.warn("Failed to remove worktree", { worktreePath, error: stderr.trim() });
     return;
   }
 
@@ -105,7 +107,7 @@ export async function removeWorktree(
   ]);
 
   if (deleteExitCode !== 0) {
-    log.warn("Failed to delete branch", { branch, error: deleteStderr.trim() });
+    logger.warn("Failed to delete branch", { branch, error: deleteStderr.trim() });
   }
 }
 
@@ -132,6 +134,7 @@ export async function executePipeline(options: {
   customPrompt?: string;
 }): Promise<PipelineResult> {
   const { ticket, preHooks, postHooks, repoCwd, executor, timeoutMs, customPrompt } = options;
+  return time(`executePipeline:${ticket.identifier}`, async () => {
   const vars = buildTaskVars(ticket);
 
   const useWorktree = executor.needsWorktree;
@@ -203,4 +206,5 @@ export async function executePipeline(options: {
       await removeWorktree(repoCwd, worktreePath, vars.branch);
     }
   }
+  });
 }

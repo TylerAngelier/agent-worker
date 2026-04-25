@@ -210,3 +210,59 @@ describe("executePipeline", () => {
     expect(receivedPrompt).toBe("Ticket: Test ticket\n\nDo something");
   });
 });
+
+describe("removeWorktree", () => {
+  let repoDir: string;
+
+  beforeEach(() => {
+    repoDir = createTempGitRepo();
+  });
+
+  afterEach(() => {
+    try {
+      execSync("git worktree prune", { cwd: repoDir });
+    } catch {}
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test("deletes branch by default after removing worktree", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
+    const wt = await createWorktree(repoDir, "test-default-branch");
+    await removeWorktree(repoDir, wt, "test-default-branch");
+
+    // Branch should be gone
+    const branches = execSync("git branch --list test-default-branch", { cwd: repoDir }).toString().trim();
+    expect(branches).toBe("");
+  });
+
+  test("deletes branch when deleteBranch is undefined", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
+    const wt = await createWorktree(repoDir, "test-undefined-branch");
+    await removeWorktree(repoDir, wt, "test-undefined-branch", undefined);
+
+    const branches = execSync("git branch --list test-undefined-branch", { cwd: repoDir }).toString().trim();
+    expect(branches).toBe("");
+  });
+
+  test("preserves branch when deleteBranch is false", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
+    const wt = await createWorktree(repoDir, "test-keep-branch");
+    await removeWorktree(repoDir, wt, "test-keep-branch", { deleteBranch: false });
+
+    // Branch should still exist
+    const branches = execSync("git branch --list test-keep-branch", { cwd: repoDir }).toString().trim();
+    expect(branches).toContain("test-keep-branch");
+
+    // Clean up the branch so afterEach doesn't fail
+    execSync("git branch -D test-keep-branch", { cwd: repoDir });
+  });
+
+  test("deletes branch when deleteBranch is true", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/pipeline/pipeline.ts");
+    const wt = await createWorktree(repoDir, "test-explicit-delete");
+    await removeWorktree(repoDir, wt, "test-explicit-delete", { deleteBranch: true });
+
+    const branches = execSync("git branch --list test-explicit-delete", { cwd: repoDir }).toString().trim();
+    expect(branches).toBe("");
+  });
+});

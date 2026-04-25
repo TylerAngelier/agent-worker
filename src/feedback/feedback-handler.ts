@@ -223,7 +223,7 @@ export async function processFeedback(options: {
     }
   } finally {
     if (worktreePath) {
-      await removeWorktree(config.repo.path, worktreePath, vars.branch);
+      await removeWorktree(config.repo.path, worktreePath, vars.branch, { deleteBranch: false });
     }
   }
 }

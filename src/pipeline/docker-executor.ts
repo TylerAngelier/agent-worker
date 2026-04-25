@@ -5,7 +5,7 @@ import { log } from "../logger.ts";
 export interface DockerExecutorConfig {
   image: string;
   command: string[];
-  dangerously_skip_permissions?: boolean;
+  permissions_flag?: string;
   memory?: string;
   cpus?: string;
   network?: string;
@@ -97,10 +97,9 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
 
       // Command — append prompt as final argument
       const command = [...config.command];
-      if (config.dangerously_skip_permissions) {
-        // Insert --dangerously-skip-permissions before prompt if not already present
-        if (!command.includes("--dangerously-skip-permissions")) {
-          command.push("--dangerously-skip-permissions");
+      if (config.permissions_flag) {
+        if (!command.includes(config.permissions_flag)) {
+          command.push(config.permissions_flag);
         }
       }
       command.push(prompt);

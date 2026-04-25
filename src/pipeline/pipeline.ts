@@ -36,12 +36,12 @@ export async function createWorktree(
 ): Promise<string> {
   const worktreePath = join(tmpdir(), `agent-worker-${branch}`);
   const createBranch = options?.createBranch !== false;
-  const cmd = createBranch
-    ? `git worktree add -b ${branch} ${worktreePath} main`
-    : `git worktree add ${worktreePath} ${branch}`;
   log.info("Creating worktree", { worktreePath, branch, createBranch });
 
-  const proc = Bun.spawn(["sh", "-c", cmd], {
+  const spawnArgs = createBranch
+    ? ["git", "worktree", "add", "-b", branch, worktreePath, "main"]
+    : ["git", "worktree", "add", worktreePath, branch];
+  const proc = Bun.spawn(spawnArgs, {
     cwd: repoPath,
     stdout: "pipe",
     stderr: "pipe",
@@ -71,10 +71,11 @@ export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
   branch: string,
+  options?: { deleteBranch?: boolean },
 ): Promise<void> {
   log.info("Removing worktree", { worktreePath });
 
-  const proc = Bun.spawn(["sh", "-c", `git worktree remove --force ${worktreePath}`], {
+  const proc = Bun.spawn(["git", "worktree", "remove", "--force", worktreePath], {
     cwd: repoPath,
     stdout: "pipe",
     stderr: "pipe",
@@ -91,21 +92,24 @@ export async function removeWorktree(
     return;
   }
 
-  // Delete the branch we created so subsequent runs don't fail with "branch already exists"
-  const deleteProc = Bun.spawn(["sh", "-c", `git branch -D ${branch}`], {
-    cwd: repoPath,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  // Delete the branch we created so subsequent runs don't fail with "branch already exists".
+  // Skip when deleteBranch is explicitly false (e.g. feedback handler preserving the PR branch).
+  if (options?.deleteBranch !== false) {
+    const deleteProc = Bun.spawn(["git", "branch", "-D", branch], {
+      cwd: repoPath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
-  const [deleteExitCode, __, deleteStderr] = await Promise.all([
-    deleteProc.exited,
-    new Response(deleteProc.stdout).text(),
-    new Response(deleteProc.stderr).text(),
-  ]);
+    const [deleteExitCode, __, deleteStderr] = await Promise.all([
+      deleteProc.exited,
+      new Response(deleteProc.stdout).text(),
+      new Response(deleteProc.stderr).text(),
+    ]);
 
-  if (deleteExitCode !== 0) {
-    log.warn("Failed to delete branch", { branch, error: deleteStderr.trim() });
+    if (deleteExitCode !== 0) {
+      log.warn("Failed to delete branch", { branch, error: deleteStderr.trim() });
+    }
   }
 }
 

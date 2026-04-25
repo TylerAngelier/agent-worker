@@ -58,7 +58,7 @@ describe("createDockerExecutor", () => {
     const executor = createDockerExecutor({
       image: "anthropic/claude-code:latest",
       command: ["claude", "--print", "-p"],
-      dangerously_skip_permissions: true,
+      permissions_flag: "--dangerously-skip-permissions",
       memory: "4g",
       cpus: "2",
       network: "none",
@@ -84,7 +84,7 @@ describe("ContainerExecutorConfig schema", () => {
     type: z.literal("container"),
     image: z.string(),
     command: z.array(z.string()),
-    dangerously_skip_permissions: z.boolean().default(false),
+    permissions_flag: z.string().optional(),
     memory: z.string().optional(),
     cpus: z.string().optional(),
     network: z.string().default("none"),
@@ -104,7 +104,7 @@ describe("ContainerExecutorConfig schema", () => {
     expect(config.type).toBe("container");
     expect(config.image).toBe("anthropic/claude-code:latest");
     expect(config.command).toEqual(["claude", "--print", "-p"]);
-    expect(config.dangerously_skip_permissions).toBe(false);
+    expect(config.permissions_flag).toBeUndefined();
     expect(config.network).toBe("none");
     expect(config.env).toEqual({});
     expect(config.mounts).toEqual([]);
@@ -117,7 +117,7 @@ describe("ContainerExecutorConfig schema", () => {
       type: "container",
       image: "anthropic/claude-code:latest",
       command: ["claude", "--print", "-p"],
-      dangerously_skip_permissions: true,
+      permissions_flag: "--dangerously-skip-permissions",
       memory: "4g",
       cpus: "2",
       network: "none",
@@ -128,7 +128,7 @@ describe("ContainerExecutorConfig schema", () => {
     });
 
     expect(config.type).toBe("container");
-    expect(config.dangerously_skip_permissions).toBe(true);
+    expect(config.permissions_flag).toBe("--dangerously-skip-permissions");
     expect(config.memory).toBe("4g");
     expect(config.cpus).toBe("2");
     expect(config.network).toBe("none");

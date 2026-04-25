@@ -1,4 +1,8 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { execSync } from "child_process";
 import { processFeedback } from "../../src/feedback/feedback-handler.ts";
 import { initLogger } from "../../src/logger.ts";
 import type { Ticket, TicketProvider } from "../../src/providers/types.ts";
@@ -172,5 +176,50 @@ describe("processFeedback", () => {
     expect(receivedPrompt).toContain("Review feedback on PR #42:");
     expect(receivedPrompt).toContain("Please fix the typo");
     expect(receivedPrompt).toContain("Address this feedback by pushing additional commits");
+  });
+
+  test("preserves branch after feedback processing (deleteBranch: false)", async () => {
+    // Create a real temp git repo with a branch matching the ticket's worktree branch
+    const repoDir = mkdtempSync(join(tmpdir(), "agent-worker-fb-test-"));
+    const branchName = `agent/task-${ticket.identifier}`; // agent/task-ENG-100
+
+    try {
+      execSync("git init -b main && git commit --allow-empty -m 'init'", { cwd: repoDir });
+      execSync(`git branch ${branchName}`, { cwd: repoDir });
+
+      const config = makeConfig({ repo: { path: repoDir } });
+
+      const worktreeExecutor: CodeExecutor = {
+        name: "mock",
+        needsWorktree: true,
+        run: async () => ({ success: true, output: "ok", timedOut: false, exitCode: 0 }),
+      };
+
+      const prTracker = makePRTracker();
+      prTracker.track({
+        ticketId: ticket.id,
+        prNumber: pr.number,
+        branch: pr.branch,
+        lastCommentCheck: new Date().toISOString(),
+      });
+
+      await processFeedback({
+        ticket,
+        comment,
+        pr,
+        config,
+        provider: makeProvider(),
+        scm: makeScm(),
+        prTracker,
+        executor: worktreeExecutor,
+      });
+
+      // The branch must still exist — removeWorktree was called with { deleteBranch: false }
+      const branches = execSync(`git branch --list ${branchName}`, { cwd: repoDir }).toString().trim();
+      expect(branches).toContain(branchName);
+    } finally {
+      try { execSync("git worktree prune", { cwd: repoDir }); } catch {}
+      rmSync(repoDir, { recursive: true, force: true });
+    }
   });
 });

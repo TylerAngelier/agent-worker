@@ -122,6 +122,7 @@ export function createExecutor(executorConfig: Config["executor"]): CodeExecutor
       return createDockerExecutor({
         image: executorConfig.image,
         command: executorConfig.command,
+        permissions_flag: executorConfig.permissions_flag,
         memory: executorConfig.memory,
         cpus: executorConfig.cpus,
         network: executorConfig.network,

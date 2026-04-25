@@ -4,6 +4,7 @@
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { BitbucketServerScmConfig } from "../config.ts";
 import { log } from "../logger.ts";
+import { createHttpClient, type HttpClient } from "../internal/http.ts";
 
 /**
  * Creates a Bitbucket Server SCM provider using REST API v1.
@@ -22,30 +23,24 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const { project, repo } = config;
 
-  /**
-   * Wrapper for Bitbucket Server API requests.
-   * Injects auth header. Logs request/response timing.
-   * @param path - API path appended to /rest/api/1.0
-   * @returns Fetch Response
-   * @throws Error on non-OK status
-   */
-  async function bbFetch(path: string): Promise<Response> {
-    const url = `${baseUrl}/rest/api/1.0${path}`;
-    logger.debug("Bitbucket API request", { path });
-    const start = Date.now();
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-    logger.debug("Bitbucket API response", { path, status: res.status, durationMs: Date.now() - start });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`BitBucket Server API error ${res.status}: ${text}`);
-    }
-    return res;
-  }
+  const http: HttpClient = createHttpClient({
+    baseUrl: `${baseUrl}/rest/api/1.0`,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    componentName: "bitbucket",
+    backoff: {},
+  });
+
+  const reactionHttp: HttpClient = createHttpClient({
+    baseUrl,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+    },
+    componentName: "bitbucket",
+    backoff: {},
+  });
 
   /**
    * Maps GitHub reaction names to Bitbucket Server emoticon names.
@@ -66,10 +61,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
   return {
     async findPullRequest(branch: string): Promise<PullRequest | null> {
       logger.debug("Finding pull request", { branch });
-      const res = await bbFetch(
-        `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests?at=refs/heads/${encodeURIComponent(branch)}&state=ALL&limit=5`
-      );
-      const data = (await res.json()) as Record<string, unknown>;
+      const { data } = await http.request<Record<string, unknown>>({
+        path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests?at=refs/heads/${encodeURIComponent(branch)}&state=ALL&limit=5`,
+      });
       const values = data.values as Record<string, unknown>[] | undefined;
 
       if (!Array.isArray(values) || values.length === 0) {
@@ -98,10 +92,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
 
     async getPRComments(prNumber: number, since?: string): Promise<PRComment[]> {
       logger.debug("Fetching PR comments", { prNumber, since });
-      const res = await bbFetch(
-        `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/activities?limit=100`
-      );
-      const data = (await res.json()) as Record<string, unknown>;
+      const { data } = await http.request<Record<string, unknown>>({
+        path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/activities?limit=100`,
+      });
       const activities = data.values as Record<string, unknown>[] | undefined;
 
       if (!Array.isArray(activities)) return [];
@@ -131,10 +124,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
     async isPRMerged(prNumber: number): Promise<boolean> {
       logger.debug("Checking if PR is merged", { prNumber });
       try {
-        const res = await bbFetch(
-          `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}`
-        );
-        const data = (await res.json()) as Record<string, unknown>;
+        const { data } = await http.request<Record<string, unknown>>({
+          path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}`,
+        });
         const merged = data.state === "MERGED";
         logger.debug("PR merge check", { prNumber, merged });
         return merged;
@@ -147,10 +139,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
     async getPRMergeInfo(prNumber: number): Promise<{ url: string; sha: string; summary: string } | null> {
       logger.debug("Fetching PR merge info", { prNumber });
       try {
-        const res = await bbFetch(
-          `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}`
-        );
-        const data = (await res.json()) as Record<string, unknown>;
+        const { data } = await http.request<Record<string, unknown>>({
+          path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}`,
+        });
         const mergeCommit = data.mergeCommit as Record<string, unknown> | null | undefined;
 
         if (!mergeCommit?.id) {
@@ -164,10 +155,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
 
         let summary = "";
         try {
-          const commitRes = await bbFetch(
-            `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/commits/${sha}`
-          );
-          const commitData = (await commitRes.json()) as Record<string, unknown>;
+          const { data: commitData } = await http.request<Record<string, unknown>>({
+            path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/commits/${sha}`,
+          });
           const message = (commitData.message as string) ?? "";
           summary = message.split("\n")[0] ?? "";
         } catch {
@@ -192,10 +182,9 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
         return false;
       }
       try {
-        const res = await bbFetch(
-          `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}`
-        );
-        const data = (await res.json()) as Record<string, unknown>;
+        const { data } = await http.request<Record<string, unknown>>({
+          path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}`,
+        });
         const emoticon = mapReactionToEmoticon(reaction);
 
         // Check if reactions are embedded in the comment properties
@@ -236,24 +225,15 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
       }
       try {
         const emoticon = mapReactionToEmoticon(reaction);
-        const url = `${baseUrl}/rest/comment-likes/latest/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}/reactions/${encodeURIComponent(emoticon)}`;
-        logger.debug("Bitbucket reaction API request", { url });
-        const start = Date.now();
-        const res = await fetch(url, {
+        const { status } = await reactionHttp.request({
           method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          path: `/rest/comment-likes/latest/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments/${commentId}/reactions/${encodeURIComponent(emoticon)}`,
+          allowedStatuses: [409],
         });
-        logger.debug("Bitbucket reaction API response", { status: res.status, durationMs: Date.now() - start });
 
-        if (res.status === 409) {
+        if (status === 409) {
           logger.debug("Reaction already exists", { commentId, emoticon });
           return;
-        }
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`Bitbucket reaction API error ${res.status}: ${text}`);
         }
         logger.debug("Comment reaction added", { commentId, emoticon });
       } catch (err) {
@@ -268,27 +248,16 @@ export function createBitbucketServerProvider(config: BitbucketServerScmConfig):
     async replyToComment(prNumber: number, commentId: number, _commentType: "issue" | "review", body: string): Promise<void> {
       logger.debug("Replying to comment", { prNumber, commentId });
       try {
-        const url = `${baseUrl}/rest/api/1.0/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments`;
-        const start = Date.now();
-        const res = await fetch(url, {
+        await http.request({
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
+          path: `/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(repo)}/pull-requests/${prNumber}/comments`,
+          body: {
             text: body,
             parent: {
               id: commentId,
             },
-          }),
+          },
         });
-        logger.debug("Bitbucket reply API response", { status: res.status, durationMs: Date.now() - start });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`Bitbucket reply API error ${res.status}: ${text}`);
-        }
         logger.debug("Comment reply posted", { prNumber, commentId });
       } catch (err) {
         logger.warn("Failed to reply to comment (best-effort)", {

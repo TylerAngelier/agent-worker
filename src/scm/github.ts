@@ -4,6 +4,7 @@
 import type { ScmProvider, PullRequest, PRComment } from "./types.ts";
 import type { GitHubScmConfig } from "../config.ts";
 import { log } from "../logger.ts";
+import { createHttpClient, type HttpClient } from "../internal/http.ts";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -23,67 +24,23 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
 
   const { owner, repo } = config;
 
-  /**
-   * Wrapper for GitHub API GET requests.
-   * Injects auth, User-Agent, and Accept headers. Logs request/response timing.
-   * @param path - API path appended to repos/{owner}/{repo}
-   * @returns Fetch Response
-   * @throws Error on non-OK status (204 is allowed)
-   */
-  async function ghFetch(path: string): Promise<Response> {
-    const url = `${GITHUB_API}/repos/${owner}/${repo}${path}`;
-    logger.debug("GitHub API request", { path });
-    const start = Date.now();
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "agent-worker",
-      },
-    });
-    logger.debug("GitHub API response", { path, status: res.status, durationMs: Date.now() - start });
-    if (!res.ok && res.status !== 204) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`GitHub API error ${res.status}: ${text}`);
-    }
-    return res;
-  }
-
-  /**
-   * Wrapper for GitHub API POST requests with a JSON body.
-   * Injects auth, User-Agent, Accept, and Content-Type headers.
-   * @param path - API path appended to repos/{owner}/{repo}
-   * @param body - Object to serialize as JSON request body.
-   * @returns Fetch Response
-   * @throws Error on non-OK status (201 is expected for creates)
-   */
-  async function ghPost(path: string, body: Record<string, unknown>): Promise<Response> {
-    const url = `${GITHUB_API}/repos/${owner}/${repo}${path}`;
-    logger.debug("GitHub API POST request", { path });
-    const start = Date.now();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github.v3+json",
-        "Content-Type": "application/json",
-        "User-Agent": "agent-worker",
-      },
-      body: JSON.stringify(body),
-    });
-    logger.debug("GitHub API POST response", { path, status: res.status, durationMs: Date.now() - start });
-    if (!res.ok && res.status !== 201) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`GitHub API error ${res.status}: ${text}`);
-    }
-    return res;
-  }
+  const http: HttpClient = createHttpClient({
+    baseUrl: `${GITHUB_API}/repos/${owner}/${repo}`,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "agent-worker",
+    },
+    componentName: "github",
+    backoff: {},
+  });
 
   return {
     async findPullRequest(branch: string): Promise<PullRequest | null> {
       logger.debug("Finding pull request", { branch });
-      const res = await ghFetch(`/pulls?head=${owner}:${encodeURIComponent(branch)}&state=all&per_page=5`);
-      const prs = (await res.json()) as unknown[];
+      const { data: prs } = await http.request<unknown[]>({
+        path: `/pulls?head=${owner}:${encodeURIComponent(branch)}&state=all&per_page=5`,
+      });
 
       if (!Array.isArray(prs) || prs.length === 0) {
         logger.debug("No pull request found", { branch });
@@ -118,15 +75,13 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
 
       // Fetch both review comments (inline code comments) and issue comments
       // (general PR conversation) since /agent feedback can be posted as either.
-      const [reviewRes, issueRes] = await Promise.all([
-        ghFetch(`/pulls/${prNumber}/comments?${params}`),
-        ghFetch(`/issues/${prNumber}/comments?${params}`),
+      const [reviewResult, issueResult] = await Promise.all([
+        http.request<unknown[]>({ path: `/pulls/${prNumber}/comments?${params}` }),
+        http.request<unknown[]>({ path: `/issues/${prNumber}/comments?${params}` }),
       ]);
 
-      const [reviewComments, issueComments] = await Promise.all([
-        reviewRes.json() as Promise<unknown>,
-        issueRes.json() as Promise<unknown>,
-      ]);
+      const reviewComments = reviewResult.data;
+      const issueComments = issueResult.data;
 
       const mapComment = (c: unknown, commentType: "issue" | "review"): PRComment => {
         const comment = c as Record<string, unknown>;
@@ -165,8 +120,8 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
     async isPRMerged(prNumber: number): Promise<boolean> {
       logger.debug("Checking if PR is merged", { prNumber });
       try {
-        const res = await ghFetch(`/pulls/${prNumber}/merge`);
-        const merged = res.status === 204;
+        const { status } = await http.request({ path: `/pulls/${prNumber}/merge`, allowedStatuses: [204] });
+        const merged = status === 204;
         logger.debug("PR merge check", { prNumber, merged });
         return merged;
       } catch {
@@ -178,8 +133,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
     async getPRMergeInfo(prNumber: number): Promise<{ url: string; sha: string; summary: string } | null> {
       logger.debug("Fetching PR merge info", { prNumber });
       try {
-        const res = await ghFetch(`/pulls/${prNumber}`);
-        const pr = (await res.json()) as Record<string, unknown>;
+        const { data: pr } = await http.request<Record<string, unknown>>({ path: `/pulls/${prNumber}` });
         const mergeCommitSha = pr.merge_commit_sha as string | null;
         const htmlUrl = pr.html_url as string;
 
@@ -190,8 +144,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
 
         let summary = "";
         try {
-          const commitRes = await ghFetch(`/commits/${mergeCommitSha}`);
-          const commit = (await commitRes.json()) as Record<string, unknown>;
+          const { data: commit } = await http.request<Record<string, unknown>>({ path: `/commits/${mergeCommitSha}` });
           const message = ((commit.commit as Record<string, unknown>)?.message as string) ?? "";
           summary = message.split("\n")[0] ?? "";
         } catch {
@@ -215,8 +168,7 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
         const basePath = commentType === "issue"
           ? `/issues/comments/${commentId}/reactions?per_page=100`
           : `/pulls/comments/${commentId}/reactions?per_page=100`;
-        const res = await ghFetch(basePath);
-        const reactions = (await res.json()) as Record<string, unknown>[];
+        const { data: reactions } = await http.request<Record<string, unknown>[]>({ path: basePath });
         const hasReaction = Array.isArray(reactions) && reactions.some((r) => r.content === reaction);
         logger.debug("Comment reaction check", { commentId, commentType, reaction, hasReaction });
         return hasReaction;
@@ -237,7 +189,12 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
         const basePath = commentType === "issue"
           ? `/issues/comments/${commentId}/reactions`
           : `/pulls/comments/${commentId}/reactions`;
-        await ghPost(basePath, { content: reaction });
+        await http.request({
+          method: "POST",
+          path: basePath,
+          body: { content: reaction },
+          allowedStatuses: [201],
+        });
         logger.debug("Comment reaction added", { commentId, commentType, reaction });
       } catch (err) {
         logger.warn("Failed to add comment reaction (best-effort)", {
@@ -254,10 +211,20 @@ export function createGitHubProvider(config: GitHubScmConfig): ScmProvider {
       try {
         if (commentType === "issue") {
           // Issue comments: post a standalone comment on the issue/PR
-          await ghPost(`/issues/${prNumber}/comments`, { body });
+          await http.request({
+            method: "POST",
+            path: `/issues/${prNumber}/comments`,
+            body: { body },
+            allowedStatuses: [201],
+          });
         } else {
           // Review comments: post a threaded reply to the review comment
-          await ghPost(`/pulls/${prNumber}/comments/${commentId}/replies`, { body });
+          await http.request({
+            method: "POST",
+            path: `/pulls/${prNumber}/comments/${commentId}/replies`,
+            body: { body },
+            allowedStatuses: [201],
+          });
         }
         logger.debug("Comment reply posted", { prNumber, commentId, commentType });
       } catch (err) {

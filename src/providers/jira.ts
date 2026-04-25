@@ -4,47 +4,7 @@
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { JiraProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
-
-const INITIAL_DELAY_MS = 1000;
-const JITTER_MS = 500;
-const MAX_DELAY_MS = 60000;
-const MAX_BACKOFF_RETRIES = 5;
-
-/**
- * Retries an async operation with exponential backoff and jitter on rate-limit errors.
- *
- * Retries when the error message contains "429" or "ratelimit".
- * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
- *
- * @typeParam T - Return type of the async operation.
- * @param fn - The async operation to retry.
- * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
- * @returns The result of `fn` on the first successful attempt.
- * @throws The last error encountered after all retries are exhausted.
- */
-async function withBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = MAX_BACKOFF_RETRIES
-): Promise<T> {
-  let delay = INITIAL_DELAY_MS;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      const isRateLimit =
-        (err instanceof Error && err.message.includes("429")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("ratelimit"));
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      log.debug("Rate limited, backing off", { component: "jira", attempt, delayMs: delay + Math.random() * JITTER_MS });
-      const jitter = Math.random() * JITTER_MS;
-      await Bun.sleep(delay + jitter);
-      delay = Math.min(delay * 2, MAX_DELAY_MS);
-    }
-  }
-  throw new Error("Unreachable");
-}
+import { createHttpClient, type HttpClient } from "../internal/http.ts";
 
 /** Jira search API response shape for issue queries. */
 interface JiraSearchResponse {
@@ -101,46 +61,21 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
   const baseUrl = config.base_url.replace(/\/+$/, "");
   const authHeader = "Basic " + btoa(`${username}:${apiToken}`);
 
-  /**
-   * Wrapper around `fetch()` for the Jira REST API.
-   *
-   * Injects HTTP Basic auth headers and `Content-Type: application/json`,
-   * logs request/response details at debug level, and throws on non-OK responses.
-   * All requests are automatically retried with backoff on rate-limit errors.
-   *
-   * @param path - API path relative to `/rest/api/2` (e.g. `/search`).
-   * @param options - Standard `fetch` options; headers are merged with auth defaults.
-   * @returns The parsed `Response` object.
-   * @throws Error with status code and response body on non-OK HTTP status.
-   */
-  async function jiraFetch(path: string, options?: RequestInit): Promise<Response> {
-    const url = `${baseUrl}/rest/api/2${path}`;
-    logger.debug("Jira API request", { method: options?.method ?? "GET", path });
-    const start = Date.now();
-    const res = await withBackoff(() =>
-      fetch(url, {
-        ...options,
-        headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
-          ...options?.headers,
-        },
-      })
-    );
-    logger.debug("Jira API response", { path, status: res.status, durationMs: Date.now() - start });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Jira API error ${res.status}: ${text}`);
-    }
-    return res;
-  }
+  const http: HttpClient = createHttpClient({
+    baseUrl: `${baseUrl}/rest/api/2`,
+    defaultHeaders: {
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+    },
+    componentName: "jira",
+    backoff: {},
+  });
 
   return {
     async fetchReadyTickets(): Promise<Ticket[]> {
       logger.debug("Fetching ready tickets", { jql: config.jql });
       const jql = encodeURIComponent(config.jql);
-      const res = await jiraFetch(`/search?jql=${jql}&maxResults=1`);
-      const data = (await res.json()) as JiraSearchResponse;
+      const { data } = await http.request<JiraSearchResponse>({ path: `/search?jql=${jql}&maxResults=1` });
 
       const tickets = data.issues.map((issue) => ({
         id: issue.id,
@@ -155,8 +90,7 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
     async fetchTicketsByStatus(statusName: string): Promise<Ticket[]> {
       logger.debug("Fetching tickets by status", { status: statusName });
       const jql = encodeURIComponent(config.jql.replace(/status\s*=\s*'[^']*'/, `status = '${statusName}'`));
-      const res = await jiraFetch(`/search?jql=${jql}&maxResults=50`);
-      const data = (await res.json()) as JiraSearchResponse;
+      const { data } = await http.request<JiraSearchResponse>({ path: `/search?jql=${jql}&maxResults=50` });
 
       const tickets = data.issues.map((issue) => ({
         id: issue.id,
@@ -170,25 +104,26 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
 
     async transitionStatus(ticketId: string, statusName: string): Promise<void> {
       logger.debug("Transitioning ticket status", { ticketId, to: statusName });
-      const res = await jiraFetch(`/issue/${ticketId}/transitions`);
-      const data = (await res.json()) as JiraTransitionsResponse;
-      const transition = data.transitions.find((t) => t.name === statusName);
+      const { data: transData } = await http.request<JiraTransitionsResponse>({ path: `/issue/${ticketId}/transitions` });
+      const transition = transData.transitions.find((t) => t.name === statusName);
       if (!transition) {
-        throw new Error(`Jira transition "${statusName}" not found for issue ${ticketId}. Available: ${data.transitions.map((t) => t.name).join(", ")}`);
+        throw new Error(`Jira transition "${statusName}" not found for issue ${ticketId}. Available: ${transData.transitions.map((t) => t.name).join(", ")}`);
       }
 
-      await jiraFetch(`/issue/${ticketId}/transitions`, {
+      await http.request({
         method: "POST",
-        body: JSON.stringify({ transition: { id: transition.id } }),
+        path: `/issue/${ticketId}/transitions`,
+        body: { transition: { id: transition.id } },
       });
       logger.debug("Ticket status transitioned", { ticketId, to: statusName });
     },
 
     async postComment(ticketId: string, body: string): Promise<void> {
       logger.debug("Posting comment", { ticketId, bodyLength: body.length });
-      await jiraFetch(`/issue/${ticketId}/comment`, {
+      await http.request({
         method: "POST",
-        body: JSON.stringify({ body }),
+        path: `/issue/${ticketId}/comment`,
+        body: { body },
       });
     },
 
@@ -197,8 +132,7 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
       const params = new URLSearchParams();
       if (since) params.set("since", since);
       const query = params.toString() ? `?${params}` : "";
-      const res = await jiraFetch(`/issue/${ticketId}/comment${query}`);
-      const data = (await res.json()) as JiraCommentsResponse;
+      const { data } = await http.request<JiraCommentsResponse>({ path: `/issue/${ticketId}/comment${query}` });
 
       const results = data.comments.map((c) => ({
         id: c.id,

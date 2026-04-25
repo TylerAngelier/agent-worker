@@ -5,39 +5,7 @@
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { GitHubProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
-
-const GITHUB_GRAPHQL = "https://api.github.com/graphql";
-const GITHUB_REST = "https://api.github.com";
-
-const INITIAL_DELAY_MS = 1000;
-const JITTER_MS = 500;
-const MAX_DELAY_MS = 60000;
-const MAX_BACKOFF_RETRIES = 5;
-
-async function withBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = MAX_BACKOFF_RETRIES
-): Promise<T> {
-  let delay = INITIAL_DELAY_MS;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      const isRateLimit =
-        (err instanceof Error && err.message.includes("429")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("ratelimit")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("rate limit"));
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      log.debug("Rate limited, backing off", { component: "github", attempt, delayMs: delay + Math.random() * JITTER_MS });
-      const jitter = Math.random() * JITTER_MS;
-      await Bun.sleep(delay + jitter);
-      delay = Math.min(delay * 2, MAX_DELAY_MS);
-    }
-  }
-  throw new Error("Unreachable");
-}
+import { createHttpClient, withBackoff, type HttpClient } from "../internal/http.ts";
 
 /** Parsed query filters for client-side filtering of project items. */
 interface QueryFilters {
@@ -112,7 +80,10 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
   // Parse query filters (e.g. "assignee:username label:bug")
   const filters = parseQueryFilters(query);
 
-  /** Makes a GitHub GraphQL API request. */
+  const GITHUB_GRAPHQL = "https://api.github.com/graphql";
+  const GITHUB_REST = "https://api.github.com";
+
+  /** Makes a GitHub GraphQL API request with backoff. */
   async function graphqlFetch<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
     logger.debug("GraphQL request", { variables: JSON.stringify(variables) });
     const start = Date.now();
@@ -125,7 +96,8 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
           "User-Agent": "agent-worker",
         },
         body: JSON.stringify({ query, variables }),
-      })
+      }),
+      { logger, componentName: "github-provider" }
     );
     logger.debug("GraphQL response", { status: res.status, durationMs: Date.now() - start });
 
@@ -141,30 +113,18 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
     return body.data as T;
   }
 
-  /** Makes a GitHub REST API request for issue operations. */
-  async function restFetch(path: string, options?: RequestInit): Promise<Response> {
-    const url = `${GITHUB_REST}/repos/${owner}/${repo}${path}`;
-    logger.debug("REST request", { method: options?.method ?? "GET", path });
-    const start = Date.now();
-    const res = await withBackoff(() =>
-      fetch(url, {
-        ...options,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github.v3+json",
-          "Content-Type": "application/json",
-          "User-Agent": "agent-worker",
-          ...options?.headers,
-        },
-      })
-    );
-    logger.debug("REST response", { path, status: res.status, durationMs: Date.now() - start });
-    if (!res.ok && res.status !== 201) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`GitHub REST error ${res.status}: ${text}`);
-    }
-    return res;
-  }
+  /** REST client for GitHub API operations (comments, etc.). */
+  const restHttp: HttpClient = createHttpClient({
+    baseUrl: `${GITHUB_REST}/repos/${owner}/${repo}`,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.v3+json",
+      "Content-Type": "application/json",
+      "User-Agent": "agent-worker",
+    },
+    componentName: "github-provider",
+    backoff: {},
+  });
 
   /** Resolves and caches the project ID, status field ID, and option map. */
   async function ensureCache(): Promise<ProjectCache> {
@@ -380,9 +340,11 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
     async postComment(ticketId: string, body: string): Promise<void> {
       const { issueNumber } = parseTicketId(ticketId);
       logger.debug("Posting comment", { issueNumber, bodyLength: body.length });
-      await restFetch(`/issues/${issueNumber}/comments`, {
+      await restHttp.request({
         method: "POST",
-        body: JSON.stringify({ body }),
+        path: `/issues/${issueNumber}/comments`,
+        body: { body },
+        allowedStatuses: [201],
       });
     },
 
@@ -392,13 +354,12 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
       const params = new URLSearchParams();
       params.set("per_page", "100");
       if (since) params.set("since", since);
-      const res = await restFetch(`/issues/${issueNumber}/comments?${params}`);
-      const data = (await res.json()) as {
+      const { data } = await restHttp.request<{
         id: number;
         user: { login: string } | null;
         body: string;
         created_at: string;
-      }[];
+      }[]>({ path: `/issues/${issueNumber}/comments?${params}` });
 
       const results = data.map((c) => ({
         id: String(c.id),

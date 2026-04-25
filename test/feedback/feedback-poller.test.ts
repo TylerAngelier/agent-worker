@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { hasAgentReaction, createFeedbackPoller } from "../../src/feedback/feedback-poller.ts";
+import { hasAgentReaction } from "../../src/feedback/reaction-utils.ts";
+import { createFeedbackPoller } from "../../src/feedback/feedback-poller.ts";
 import { initLogger } from "../../src/logger.ts";
 import type { ScmProvider } from "../../src/scm/types.ts";
 import type { TicketProvider } from "../../src/providers/types.ts";
@@ -361,5 +362,48 @@ describe("createFeedbackPoller — concurrency controls", () => {
     spy.mockRestore();
     // Both comments should be attempted despite the first one failing
     expect(processedBodies).toEqual(["/agent fail this", "/agent fix that"]);
+  });
+
+  test("skips already-resolved tickets on subsequent cycles", async () => {
+    const config = makeConfig({ max_concurrent: 1 });
+    const ticket = { id: "t1", identifier: "TEST-1", title: "Test", description: "" };
+
+    let transitionCount = 0;
+    const scm: ScmProvider = {
+      findPullRequest: async () => null,
+      getPRComments: async () => [],
+      isPRMerged: async () => true,
+      getPRMergeInfo: async () => ({ url: "https://github.com/myorg/myrepo/commit/abc", sha: "abc1234", summary: "Merge" }),
+      hasCommentReaction: async () => false,
+      addCommentReaction: async () => {},
+      replyToComment: async () => {},
+    };
+
+    const provider: TicketProvider = {
+      fetchReadyTickets: async () => [ticket],
+      fetchTicketsByStatus: async () => [ticket],
+      transitionStatus: async () => { transitionCount++; },
+      postComment: async () => {},
+      fetchComments: async () => [],
+    };
+
+    const prTracker = createMockTracker([{
+      ticketId: "t1",
+      ticketIdentifier: "TEST-1",
+      prNumber: 42,
+      branch: "agent/task-TEST-1",
+      lastCommentCheck: "",
+    }]);
+
+    const poller = createFeedbackPoller({ provider, scm, prTracker, config });
+
+    const pollerPromise = poller.start();
+    // Wait for two poll cycles
+    await new Promise((r) => setTimeout(r, 250));
+    poller.stop();
+    await pollerPromise;
+
+    // Transition should only happen once (second cycle skips resolved ticket)
+    expect(transitionCount).toBe(1);
   });
 });

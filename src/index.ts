@@ -1,4 +1,5 @@
 /** @module src/index — CLI entry point that wires providers, executors, SCM, and feedback pollers */
+import { join, dirname, resolve } from "path";
 import { loadConfig } from "./config.ts";
 import { initLogger, log, type LogLevel } from "./logger.ts";
 import { printSplash } from "./format.ts";
@@ -55,7 +56,9 @@ function main() {
 
   const provider = createProvider(config.provider);
   const scmProvider = createScmProvider(config.scm);
-  const prTracker = createPRTracker();
+  const prTracker = createPRTracker({
+    filePath: join(dirname(resolve(configPath)), ".agent-worker-pr-tracking.json"),
+  });
 
   const poller = createPoller({
     provider,

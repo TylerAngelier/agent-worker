@@ -48,7 +48,7 @@ export async function hasAgentReaction(
  * @param options - Poller configuration.
  * @param options.provider - Ticket provider for fetching tickets, comments, and transitioning statuses.
  * @param options.scm - SCM provider for finding PRs, checking merge status, and fetching PR comments.
- * @param options.prTracker - In-memory store mapping ticket IDs to their tracked PR metadata.
+ * @param options.prTracker - Persistent or in-memory store mapping ticket IDs to their tracked PR metadata.
  * @param options.config - Full application configuration (poll interval, statuses, comment prefix, etc.).
  * @returns An object with `start()` and `stop()` methods for lifecycle control.
  */

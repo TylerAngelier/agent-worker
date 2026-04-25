@@ -47,3 +47,6 @@ agent-worker.yaml
 
 # Place for credentials to be set that agent can run for interactive terminal testing
 .credentials.sh
+
+# PR tracking persistence file
+.agent-worker-pr-tracking.json

@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
+
+const log = logOuter.child("executor:claude");
 
 /** Options for creating a Claude Code executor. */
 export interface ClaudeExecutorOptions {

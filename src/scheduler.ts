@@ -5,7 +5,10 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log as logOuter, time } from "./logger.ts";
+
+/** Lazily-created child logger to respect initLogger() reinitialization in tests. */
+const log = logOuter.child("scheduler");
 
 /**
  * Returns the last N lines of a string.

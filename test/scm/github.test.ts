@@ -20,6 +20,170 @@ describe("GitHub SCM Provider", () => {
     );
   });
 
+  describe("findPullRequest", () => {
+    test("returns open PR when found", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls?head=")) {
+          return new Response(JSON.stringify([
+            {
+              number: 42,
+              html_url: "https://github.com/myorg/myrepo/pull/42",
+              state: "open",
+              merged_at: null,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.findPullRequest("agent/task-ENG-100");
+
+      expect(result).not.toBeNull();
+      expect(result!.number).toBe(42);
+      expect(result!.state).toBe("open");
+      expect(result!.branch).toBe("agent/task-ENG-100");
+    });
+
+    test("returns merged PR when merged_at is set", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls?head=")) {
+          return new Response(JSON.stringify([
+            {
+              number: 42,
+              html_url: "https://github.com/myorg/myrepo/pull/42",
+              state: "closed",
+              merged_at: "2026-01-02T00:00:00Z",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.findPullRequest("agent/task-ENG-100");
+
+      expect(result).not.toBeNull();
+      expect(result!.state).toBe("merged");
+    });
+
+    test("prefers open PRs over closed ones", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls?head=")) {
+          return new Response(JSON.stringify([
+            {
+              number: 10,
+              html_url: "https://github.com/myorg/myrepo/pull/10",
+              state: "closed",
+              merged_at: "2026-01-01T00:00:00Z",
+              created_at: "2025-12-30T00:00:00Z",
+            },
+            {
+              number: 42,
+              html_url: "https://github.com/myorg/myrepo/pull/42",
+              state: "open",
+              merged_at: null,
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.findPullRequest("agent/task-ENG-100");
+
+      expect(result).not.toBeNull();
+      expect(result!.number).toBe(42);
+      expect(result!.state).toBe("open");
+    });
+
+    test("returns null when no PRs found", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls?head=")) {
+          return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.findPullRequest("agent/task-ENG-999");
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("isPRMerged", () => {
+    test("returns true when merge endpoint returns 204", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls/42/merge")) {
+          return new Response(null, { status: 204 });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.isPRMerged(42);
+
+      expect(result).toBe(true);
+    });
+
+    test("returns false when PR is not merged (404)", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pulls/42/merge")) {
+          return new Response("Not found", { status: 404 });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.isPRMerged(42);
+
+      expect(result).toBe(false);
+    });
+
+    test("returns false on network error", async () => {
+      const mockFetch = mock(async () => {
+        throw new Error("Network error");
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createGitHubProvider } = await import("../../src/scm/github.ts");
+      const provider = createGitHubProvider({ type: "github", owner: "myorg", repo: "myrepo" });
+      const result = await provider.isPRMerged(42);
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe("getPRMergeInfo", () => {
     test("returns merge info with url, sha, and summary", async () => {
       const mockFetch = mock(async (url: string) => {

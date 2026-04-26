@@ -88,6 +88,24 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
     return nodes;
   }
 
+  /**
+   * Resolves the display name for a comment's author.
+   *
+   * Attempts to fetch the user relationship from the Linear SDK comment object.
+   * Falls back to `userId` if the user relationship is unavailable.
+   */
+  async function resolveCommentAuthor(c: { user?: unknown; userId?: string }): Promise<string> {
+    try {
+      if (c.user && typeof c.user === "object" && "then" in c.user) {
+        const user = await (c.user as Promise<{ name?: string; displayName?: string } | null>);
+        return user?.name ?? user?.displayName ?? "unknown";
+      }
+    } catch {
+      // user relationship may not be resolvable
+    }
+    return c.userId ?? "unknown";
+  }
+
   return {
     async fetchReadyTickets(): Promise<Ticket[]> {
       logger.debug("Fetching ready tickets", { projectId: config.project_id, status: config.statuses.ready });
@@ -158,12 +176,14 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
       const connection = await withBackoff(() => issue.comments());
       const comments = connection.nodes;
 
-      let results = comments.map((c) => ({
-        id: c.id,
-        author: c.body ?? "unknown",
-        body: c.body,
-        createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
-      }));
+      let results = await Promise.all(
+        comments.map(async (c) => ({
+          id: c.id,
+          author: await resolveCommentAuthor(c),
+          body: c.body,
+          createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
+        }))
+      );
 
       if (since) {
         const sinceDate = new Date(since);

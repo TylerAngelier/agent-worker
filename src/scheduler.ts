@@ -5,7 +5,7 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log as logOuter } from "./logger.ts";
 
 /**
  * Returns the last N lines of a string.
@@ -54,6 +54,7 @@ export async function processTicket(options: {
   config: Config;
   executor?: CodeExecutor;
 }): Promise<ProcessTicketResult> {
+  const log = logOuter.child("scheduler");
   const { ticket, provider, config } = options;
 
   // Claim the ticket

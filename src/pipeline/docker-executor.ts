@@ -1,6 +1,7 @@
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as rootLog } from "../logger.ts";
+const log = rootLog.child("docker-executor");
 
 export interface DockerExecutorConfig {
   image: string;

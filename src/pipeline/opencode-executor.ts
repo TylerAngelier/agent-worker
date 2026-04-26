@@ -2,7 +2,8 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as rootLog } from "../logger.ts";
+const log = rootLog.child("opencode-executor");
 
 /** Options for creating an OpenCode executor. */
 export interface OpenCodeExecutorOptions {

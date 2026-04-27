@@ -25,6 +25,289 @@ describe("BitBucket Server SCM Provider", () => {
     ).toThrow("BITBUCKET_TOKEN environment variable is required");
   });
 
+  describe("findPullRequest", () => {
+    test("returns open PR when found", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests?")) {
+          return new Response(JSON.stringify({
+            values: [
+              { id: 10, state: "OPEN", createdDate: "2026-01-01T00:00:00Z" },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const result = await provider.findPullRequest("feature-branch");
+
+      expect(result).not.toBeNull();
+      expect(result!.number).toBe(10);
+      expect(result!.state).toBe("open");
+      expect(result!.branch).toBe("feature-branch");
+    });
+
+    test("prefers open PR over merged/closed", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests?")) {
+          return new Response(JSON.stringify({
+            values: [
+              { id: 11, state: "MERGED", createdDate: "2026-01-02T00:00:00Z" },
+              { id: 12, state: "OPEN", createdDate: "2026-01-01T00:00:00Z" },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const result = await provider.findPullRequest("feature-branch");
+
+      expect(result!.number).toBe(12);
+      expect(result!.state).toBe("open");
+    });
+
+    test("returns merged PR when no open PR exists", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests?")) {
+          return new Response(JSON.stringify({
+            values: [
+              { id: 13, state: "MERGED", createdDate: "2026-01-02T00:00:00Z" },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const result = await provider.findPullRequest("feature-branch");
+
+      expect(result!.number).toBe(13);
+      expect(result!.state).toBe("merged");
+    });
+
+    test("returns null when no PRs found", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests?")) {
+          return new Response(JSON.stringify({ values: [] }), {
+            status: 200, headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const result = await provider.findPullRequest("feature-branch");
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("getPRComments", () => {
+    test("returns comments from activity feed", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests/42/activities")) {
+          return new Response(JSON.stringify({
+            values: [
+              {
+                action: "COMMENTED",
+                createdDate: "2026-01-01T10:00:00Z",
+                comment: { id: 100, text: "fix this", author: { displayName: "Alice" } },
+              },
+              {
+                action: "OPENED",
+                createdDate: "2026-01-01T09:00:00Z",
+              },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const comments = await provider.getPRComments(42);
+
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.id).toBe(100);
+      expect(comments[0]!.author).toBe("Alice");
+      expect(comments[0]!.body).toBe("fix this");
+      expect(comments[0]!.commentType).toBe("review");
+    });
+
+    test("filters comments by since date", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests/42/activities")) {
+          return new Response(JSON.stringify({
+            values: [
+              {
+                action: "COMMENTED",
+                createdDate: "2026-01-01T10:00:00Z",
+                comment: { id: 100, text: "old comment", author: { name: "bob" } },
+              },
+              {
+                action: "COMMENTED",
+                createdDate: "2026-01-02T10:00:00Z",
+                comment: { id: 101, text: "new comment", author: { name: "alice" } },
+              },
+            ],
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const comments = await provider.getPRComments(42, "2026-01-01T12:00:00Z");
+
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.id).toBe(101);
+    });
+
+    test("returns empty array when no activities", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests/42/activities")) {
+          return new Response(JSON.stringify({}), {
+            status: 200, headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      const comments = await provider.getPRComments(42);
+
+      expect(comments).toEqual([]);
+    });
+  });
+
+  describe("isPRMerged", () => {
+    test("returns true when PR state is MERGED", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests/42") && !url.includes("/commits") && !url.includes("/comments") && !url.includes("/activities")) {
+          return new Response(JSON.stringify({ id: 42, state: "MERGED" }), {
+            status: 200, headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      expect(await provider.isPRMerged(42)).toBe(true);
+    });
+
+    test("returns false when PR state is OPEN", async () => {
+      const mockFetch = mock(async (url: string) => {
+        if (url.includes("/pull-requests/42") && !url.includes("/commits") && !url.includes("/comments") && !url.includes("/activities")) {
+          return new Response(JSON.stringify({ id: 42, state: "OPEN" }), {
+            status: 200, headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      expect(await provider.isPRMerged(42)).toBe(false);
+    });
+
+    test("returns false on API error", async () => {
+      const mockFetch = mock(async () => {
+        return new Response("Forbidden", { status: 403 });
+      });
+
+      // @ts-expect-error mocking global fetch
+      globalThis.fetch = mockFetch;
+
+      const { createBitbucketServerProvider } = await import("../../src/scm/bitbucket-server.ts");
+      const provider = createBitbucketServerProvider({
+        type: "bitbucket_server",
+        base_url: "https://bb.example.com",
+        project: "PROJ",
+        repo: "myrepo",
+      });
+      expect(await provider.isPRMerged(42)).toBe(false);
+    });
+  });
+
   describe("getPRMergeInfo", () => {
     test("returns merge info with url, sha, and summary", async () => {
       const mockFetch = mock(async (url: string) => {

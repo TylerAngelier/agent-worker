@@ -9,7 +9,9 @@ import type { PRTracker } from "./tracking.ts";
 import { createWorktree, removeWorktree } from "../pipeline/pipeline.ts";
 import { buildTaskVars, interpolate } from "../pipeline/interpolate.ts";
 import { runHooks } from "../pipeline/hook-runner.ts";
-import { log as logOuter, time } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("feedback-handler");
 
 /**
  * Resolves the HEAD commit SHA in the given working directory.
@@ -43,7 +45,7 @@ async function bestEffortReaction(
   try {
     await scm.addCommentReaction(Number(commentId), commentType, reaction, prNumber);
   } catch (err) {
-    logOuter.warn("Failed to add reaction (best-effort)", {
+    logger.warn("Failed to add reaction (best-effort)", {
       commentId,
       commentType,
       reaction,
@@ -67,7 +69,7 @@ async function bestEffortReply(
   try {
     await scm.replyToComment(prNumber, Number(commentId), commentType, body);
   } catch (err) {
-    logOuter.warn("Failed to reply to comment (best-effort)", {
+    logger.warn("Failed to reply to comment (best-effort)", {
       prNumber,
       commentId,
       commentType,
@@ -108,7 +110,7 @@ export async function processFeedback(options: {
   executor?: CodeExecutor;
 }): Promise<void> {
   const { ticket, comment, pr, config, provider, scm, prTracker } = options;
-  const log = logOuter.child("feedback-handler");
+  const log = logger;
 
   let executor = options.executor;
   if (!executor) {

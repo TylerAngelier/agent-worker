@@ -6,7 +6,9 @@ import type { ScmProvider } from "../scm/types.ts";
 import type { PRTracker } from "./tracking.ts";
 import { findActionableComments, type FeedbackEvent } from "./comment-filter.ts";
 import { processFeedback } from "./feedback-handler.ts";
-import { log as logOuter } from "../logger.ts";
+import { log } from "../logger.ts";
+
+const logger = log.child("feedback-poller");
 
 /** Reactions placed by the agent to mark comments as seen or processed. */
 const AGENT_REACTIONS = ["eyes", "+1", "-1"] as const;
@@ -59,7 +61,7 @@ export function createFeedbackPoller(options: {
   config: Config;
 }): { start: () => Promise<void>; stop: () => void } {
   const { provider, scm, prTracker, config } = options;
-  const log = logOuter.child("feedback-poller");
+  const log = logger;
 
   const codeReviewStatus = config.provider.statuses.code_review;
   const verificationStatus = config.provider.statuses.verification;

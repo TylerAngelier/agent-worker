@@ -4,6 +4,8 @@
 import { interpolate, type TaskVars } from "./interpolate.ts";
 import { log } from "../logger.ts";
 
+const getChild = () => log.child("hook-runner");
+
 export type HookResult = {
   /** Whether all hook commands completed successfully. */
   success: boolean;

@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
 
 /** Options for creating a Pi executor. */
 export interface PiExecutorOptions {
@@ -21,11 +21,13 @@ export interface PiExecutorOptions {
  * @returns {@link CodeExecutor} configured for Pi
  */
 export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
+  const logger = log.child("pi");
+
   return {
     name: "pi",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("pi started", { timeoutMs, model: options?.model });
+      logger.info("pi started", { timeoutMs, model: options?.model });
 
       const args = ["pi"];
       if (options?.model) {
@@ -33,44 +35,46 @@ export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
       }
       args.push("-p", prompt, "--no-session");
 
-      const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
+      return time("pi:run", async () => {
+        const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
 
-      if ("success" in spawned) return spawned;
+        if ("success" in spawned) return spawned;
 
-      const proc = spawned.proc;
+        const proc = spawned.proc;
 
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        proc.kill();
-      }, timeoutMs);
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          proc.kill();
+        }, timeoutMs);
 
-      const [stdout, stderr] = await Promise.all([
-        streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("pi", { stream: "stdout", line });
-        }),
-        streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("pi", { stream: "stderr", line });
-        }),
-      ]);
+        const [stdout, stderr] = await Promise.all([
+          streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
+            logger.debug("stdout", { line });
+          }),
+          streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
+            logger.debug("stderr", { line });
+          }),
+        ]);
 
-      const exitCode = await proc.exited;
-      clearTimeout(timer);
+        const exitCode = await proc.exited;
+        clearTimeout(timer);
 
-      const output = (stdout + "\n" + stderr).trim();
+        const output = (stdout + "\n" + stderr).trim();
 
-      if (timedOut) {
-        log.error("pi timed out", { timeoutMs });
-        return { success: false, output, timedOut: true, exitCode: null };
-      }
+        if (timedOut) {
+          logger.error("pi timed out", { timeoutMs });
+          return { success: false, output, timedOut: true, exitCode: null };
+        }
 
-      if (exitCode !== 0) {
-        log.error("pi failed", { exitCode });
-      } else {
-        log.info("pi completed successfully");
-      }
+        if (exitCode !== 0) {
+          logger.error("pi failed", { exitCode });
+        } else {
+          logger.info("pi completed successfully");
+        }
 
-      return { success: exitCode === 0, output, timedOut: false, exitCode };
+        return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

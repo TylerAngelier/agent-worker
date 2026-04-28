@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("claude");
 
 /** Options for creating a Claude Code executor. */
 export interface ClaudeExecutorOptions {
@@ -25,7 +27,8 @@ export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecu
     name: "claude",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Claude Code started", { timeoutMs, model: options?.model });
+      return time("claude:run", async () => {
+      logger.info("started", { timeoutMs, model: options?.model });
 
       const args = ["claude", "--print"];
       if (options?.model) {
@@ -47,10 +50,10 @@ export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecu
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("claude", { stream: "stdout", line });
+          logger.info("stream", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("claude", { stream: "stderr", line });
+          logger.info("stream", { stream: "stderr", line });
         }),
       ]);
 
@@ -60,17 +63,18 @@ export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecu
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("Claude Code timed out", { timeoutMs });
+        logger.error("timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("Claude Code failed", { exitCode });
+        logger.error("failed", { exitCode });
       } else {
-        log.info("Claude Code completed successfully");
+        logger.info("completed");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

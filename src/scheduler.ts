@@ -7,6 +7,8 @@ import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
 import { log } from "./logger.ts";
 
+const getChild = () => log.child("scheduler");
+
 /**
  * Returns the last N lines of a string.
  * Used to truncate long output in ticket comments so they stay readable.

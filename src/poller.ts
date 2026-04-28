@@ -2,6 +2,7 @@
 
 import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { log } from "./logger.ts";
+import { interruptibleSleep } from "./utils.ts";
 
 /**
  * Creates an interruptible polling loop that periodically fetches ready tickets
@@ -27,28 +28,6 @@ export function createPoller(options: {
   let wakeSleep: (() => void) | null = null;
   let pollCount = 0;
   const startTime = Date.now();
-
-  /**
-   * Promise-based sleep that can be interrupted early by calling the returned
-   * wake function. Used to make the poll loop responsive to `stop()` signals
-   * without waiting for the full interval to elapse.
-   *
-   * @param ms - Duration to sleep in milliseconds.
-   * @returns A promise that resolves when the timer expires or is woken early.
-   */
-  function interruptibleSleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        wakeSleep = null;
-        resolve();
-      }, ms);
-      wakeSleep = () => {
-        clearTimeout(timer);
-        wakeSleep = null;
-        resolve();
-      };
-    });
-  }
 
   return {
     async start() {
@@ -87,13 +66,16 @@ export function createPoller(options: {
         }
 
         if (!isRunning) break;
-        await interruptibleSleep(options.intervalMs);
+        const sleep = interruptibleSleep(options.intervalMs);
+        wakeSleep = sleep.wake;
+        await sleep.promise;
       }
     },
 
     stop() {
       isRunning = false;
       wakeSleep?.();
+      wakeSleep = null;
     },
   };
 }

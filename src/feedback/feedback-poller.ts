@@ -7,6 +7,7 @@ import type { PRTracker } from "./tracking.ts";
 import { findActionableComments, type FeedbackEvent } from "./comment-filter.ts";
 import { processFeedback } from "./feedback-handler.ts";
 import { log as logOuter } from "../logger.ts";
+import { interruptibleSleep } from "../utils.ts";
 
 /** Reactions placed by the agent to mark comments as seen or processed. */
 const AGENT_REACTIONS = ["eyes", "+1", "-1"] as const;
@@ -69,26 +70,6 @@ export function createFeedbackPoller(options: {
   const resolved = new Set<string>(); // ticket IDs already transitioned to verification
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
-
-  /**
-   * Internal helper that sleeps for the specified duration but can be interrupted
-   * early via the `wakeSleep` closure variable set by this function.
-   * @param ms - Number of milliseconds to sleep.
-   * @returns A promise that resolves when the timer fires or is interrupted.
-   */
-  function interruptibleSleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        wakeSleep = null;
-        resolve();
-      }, ms);
-      wakeSleep = () => {
-        clearTimeout(timer);
-        wakeSleep = null;
-        resolve();
-      };
-    });
-  }
 
   /**
    * Internal helper that looks up the tracked PR info for a ticket and delegates
@@ -305,7 +286,9 @@ export function createFeedbackPoller(options: {
         }
 
         if (!isRunning) break;
-        await interruptibleSleep(intervalMs);
+        const sleep = interruptibleSleep(intervalMs);
+        wakeSleep = sleep.wake;
+        await sleep.promise;
       }
 
       log.info("Feedback poller stopped");
@@ -314,6 +297,7 @@ export function createFeedbackPoller(options: {
     stop() {
       isRunning = false;
       wakeSleep?.();
+      wakeSleep = null;
     },
   };
 }

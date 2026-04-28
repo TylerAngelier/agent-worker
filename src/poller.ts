@@ -60,12 +60,13 @@ export function createPoller(options: {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         const uptime = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        log.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
+        log.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`, { component: "poller" });
         try {
           const tickets = await options.provider.fetchReadyTickets();
           if (tickets.length > 0) {
             const ticket = tickets[0]!;
             log.info("Ticket found", {
+              component: "poller",
               ticketId: ticket.identifier,
               title: ticket.title,
             });
@@ -73,15 +74,17 @@ export function createPoller(options: {
               await options.onTicket(ticket);
             } catch (err) {
               log.error("onTicket handler failed", {
+                component: "poller",
                 ticketId: ticket.identifier,
                 error: err instanceof Error ? err.message : String(err),
               });
             }
           } else {
-            log.debug("No tickets found");
+            log.debug("No tickets found", { component: "poller" });
           }
         } catch (err) {
           log.error("Poll cycle failed", {
+            component: "poller",
             error: err instanceof Error ? err.message : String(err),
           });
         }

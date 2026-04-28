@@ -1,7 +1,7 @@
 /** @module src/poller — Long-running polling loop that periodically fetches ready tickets and dispatches them to a handler. */
 
 import type { Ticket, TicketProvider } from "./providers/types.ts";
-import { log } from "./logger.ts";
+import { log as rootLog } from "./logger.ts";
 
 /**
  * Creates an interruptible polling loop that periodically fetches ready tickets
@@ -23,6 +23,8 @@ export function createPoller(options: {
   intervalMs: number;
   onTicket: (ticket: Ticket) => Promise<void>;
 }): { start: () => Promise<void>; stop: () => void } {
+  const log = rootLog.child("poller");
+
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
   let pollCount = 0;

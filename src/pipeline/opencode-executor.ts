@@ -4,6 +4,8 @@ import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+const logger = log.child("opencode");
+
 /** Options for creating an OpenCode executor. */
 export interface OpenCodeExecutorOptions {
   /** Optional model identifier passed via --model flag. */
@@ -24,7 +26,7 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
     name: "opencode",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("opencode started", { timeoutMs, model: options?.model });
+      logger.info("started", { timeoutMs, model: options?.model });
 
       const args = ["opencode"];
       if (options?.model) {
@@ -46,10 +48,10 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("opencode", { stream: "stdout", line });
+          logger.debug("stream", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("opencode", { stream: "stderr", line });
+          logger.debug("stream", { stream: "stderr", line });
         }),
       ]);
 
@@ -59,14 +61,14 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("opencode timed out", { timeoutMs });
+        logger.error("timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("opencode failed", { exitCode });
+        logger.error("failed", { exitCode });
       } else {
-        log.info("opencode completed successfully");
+        logger.info("completed");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };

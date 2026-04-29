@@ -48,7 +48,16 @@ function failingExecutor(): CodeExecutor {
 
 function createTempGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "agent-worker-test-"));
-  execSync("git init -b main && git commit --allow-empty -m 'init'", { cwd: dir });
+  
+  // Set up git config globally for testing
+  execSync("git config --global user.name 'Test User'");
+  execSync("git config --global user.email 'test@example.com'");
+  
+  // Create initial commit
+  execSync("git init -b main", { cwd: dir });
+  execSync("git add .", { cwd: dir });
+  execSync("git commit --allow-empty -m 'initial commit'", { cwd: dir });
+  
   return dir;
 }
 

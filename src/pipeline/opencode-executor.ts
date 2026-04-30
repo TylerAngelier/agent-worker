@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as rootLog } from "../logger.ts";
 
 /** Options for creating an OpenCode executor. */
 export interface OpenCodeExecutorOptions {
@@ -20,6 +20,7 @@ export interface OpenCodeExecutorOptions {
  * @returns {@link CodeExecutor} configured for OpenCode
  */
 export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeExecutor {
+  const log = rootLog.child("opencode");
   return {
     name: "opencode",
     needsWorktree: true,

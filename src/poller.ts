@@ -1,7 +1,9 @@
 /** @module src/poller — Long-running polling loop that periodically fetches ready tickets and dispatches them to a handler. */
 
 import type { Ticket, TicketProvider } from "./providers/types.ts";
-import { log } from "./logger.ts";
+import { log as logOuter } from "./logger.ts";
+
+const log = logOuter.child("poller");
 
 /**
  * Creates an interruptible polling loop that periodically fetches ready tickets

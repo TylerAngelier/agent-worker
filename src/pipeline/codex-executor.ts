@@ -4,6 +4,8 @@ import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
 import { log } from "../logger.ts";
 
+const logger = log.child("codex");
+
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
   /** Optional model identifier passed via --model flag. */
@@ -25,7 +27,7 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
     name: "codex",
     needsWorktree: false,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Codex started", { timeoutMs, model: options?.model });
+      logger.info("started", { timeoutMs, model: options?.model });
 
       const args = ["codex", "exec"];
       if (options?.model) {
@@ -47,10 +49,10 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stdout", line });
+          logger.info("stdout", { line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stderr", line });
+          logger.info("stderr", { line });
         }),
       ]);
 
@@ -60,14 +62,14 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("Codex timed out", { timeoutMs });
+        logger.error("timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("Codex failed", { exitCode });
+        logger.error("failed", { exitCode });
       } else {
-        log.info("Codex completed successfully");
+        logger.info("completed successfully");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };

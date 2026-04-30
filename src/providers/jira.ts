@@ -4,47 +4,7 @@
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { JiraProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
-
-const INITIAL_DELAY_MS = 1000;
-const JITTER_MS = 500;
-const MAX_DELAY_MS = 60000;
-const MAX_BACKOFF_RETRIES = 5;
-
-/**
- * Retries an async operation with exponential backoff and jitter on rate-limit errors.
- *
- * Retries when the error message contains "429" or "ratelimit".
- * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
- *
- * @typeParam T - Return type of the async operation.
- * @param fn - The async operation to retry.
- * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
- * @returns The result of `fn` on the first successful attempt.
- * @throws The last error encountered after all retries are exhausted.
- */
-async function withBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = MAX_BACKOFF_RETRIES
-): Promise<T> {
-  let delay = INITIAL_DELAY_MS;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      const isRateLimit =
-        (err instanceof Error && err.message.includes("429")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("ratelimit"));
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      log.debug("Rate limited, backing off", { component: "jira", attempt, delayMs: delay + Math.random() * JITTER_MS });
-      const jitter = Math.random() * JITTER_MS;
-      await Bun.sleep(delay + jitter);
-      delay = Math.min(delay * 2, MAX_DELAY_MS);
-    }
-  }
-  throw new Error("Unreachable");
-}
+import { withBackoff } from "./backoff.ts";
 
 /** Jira search API response shape for issue queries. */
 interface JiraSearchResponse {
@@ -126,7 +86,7 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
           ...options?.headers,
         },
       })
-    );
+    , { component: "jira" });
     logger.debug("Jira API response", { path, status: res.status, durationMs: Date.now() - start });
     if (!res.ok) {
       const text = await res.text().catch(() => "");

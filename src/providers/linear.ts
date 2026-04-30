@@ -5,47 +5,7 @@ import { LinearClient } from "@linear/sdk";
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { LinearProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
-
-const INITIAL_DELAY_MS = 1000;
-const JITTER_MS = 500;
-const MAX_DELAY_MS = 60000;
-const MAX_BACKOFF_RETRIES = 5;
-
-/**
- * Retries an async operation with exponential backoff and jitter on rate-limit errors.
- *
- * Retries when the error message contains "429" or "ratelimit".
- * Starts at 1 s delay, doubles each attempt up to 60 s max, with up to 500 ms random jitter.
- *
- * @typeParam T - Return type of the async operation.
- * @param fn - The async operation to retry.
- * @param maxRetries - Maximum number of retries after the initial attempt (default 5).
- * @returns The result of `fn` on the first successful attempt.
- * @throws The last error encountered after all retries are exhausted.
- */
-async function withBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = MAX_BACKOFF_RETRIES
-): Promise<T> {
-  let delay = INITIAL_DELAY_MS;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      const isRateLimit =
-        (err instanceof Error && err.message.toLowerCase().includes("ratelimit")) ||
-        (err instanceof Error && err.message.includes("429"));
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      log.debug("Rate limited, backing off", { component: "linear", attempt, delayMs: delay + Math.random() * JITTER_MS });
-      const jitter = Math.random() * JITTER_MS;
-      await Bun.sleep(delay + jitter);
-      delay = Math.min(delay * 2, MAX_DELAY_MS);
-    }
-  }
-  throw new Error("Unreachable");
-}
+import { withBackoff } from "./backoff.ts";
 
 /**
  * Creates a Linear ticket provider backed by the Linear GraphQL SDK.
@@ -80,8 +40,8 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
   async function getTeamStates(teamId: string): Promise<{ id: string; name: string }[]> {
     if (stateCache.has(teamId)) return stateCache.get(teamId)!;
     logger.debug("Fetching team states", { teamId });
-    const team = await withBackoff(() => client.team(teamId));
-    const states = await withBackoff(() => team.states());
+    const team = await withBackoff(() => client.team(teamId), { component: "linear" });
+    const states = await withBackoff(() => team.states(), { component: "linear" });
     const nodes = states.nodes.map((s) => ({ id: s.id, name: s.name }));
     stateCache.set(teamId, nodes);
     logger.debug("Cached team states", { teamId, count: nodes.length });
@@ -98,7 +58,7 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
             state: { name: { eq: config.statuses.ready } },
           },
         })
-      );
+      , { component: "linear" });
 
       const tickets = issues.nodes.map((issue) => ({
         id: issue.id,
@@ -119,7 +79,7 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
             state: { name: { eq: statusName } },
           },
         })
-      );
+      , { component: "linear" });
 
       const tickets = issues.nodes.map((issue) => ({
         id: issue.id,
@@ -133,7 +93,7 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
 
     async transitionStatus(ticketId: string, statusName: string): Promise<void> {
       logger.debug("Transitioning ticket status", { ticketId, to: statusName });
-      const issue = await withBackoff(() => client.issue(ticketId));
+      const issue = await withBackoff(() => client.issue(ticketId), { component: "linear" });
       const team = await issue.team;
       if (!team) throw new Error(`No team found for issue ${ticketId}`);
 
@@ -141,7 +101,7 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
       const target = states.find((s) => s.name === statusName);
       if (!target) throw new Error(`Status "${statusName}" not found on team`);
 
-      await withBackoff(() => client.updateIssue(ticketId, { stateId: target.id }));
+      await withBackoff(() => client.updateIssue(ticketId, { stateId: target.id }), { component: "linear" });
       logger.debug("Ticket status transitioned", { ticketId, to: statusName });
     },
 
@@ -149,13 +109,13 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
       logger.debug("Posting comment", { ticketId, bodyLength: body.length });
       await withBackoff(() =>
         client.createComment({ issueId: ticketId, body })
-      );
+      , { component: "linear" });
     },
 
     async fetchComments(ticketId: string, since?: string): Promise<TicketComment[]> {
       logger.debug("Fetching comments", { ticketId, since });
-      const issue = await withBackoff(() => client.issue(ticketId));
-      const connection = await withBackoff(() => issue.comments());
+      const issue = await withBackoff(() => client.issue(ticketId), { component: "linear" });
+      const connection = await withBackoff(() => issue.comments(), { component: "linear" });
       const comments = connection.nodes;
 
       let results = comments.map((c) => ({

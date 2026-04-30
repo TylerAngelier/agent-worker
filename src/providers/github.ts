@@ -5,39 +5,10 @@
 import type { Ticket, TicketComment, TicketProvider } from "./types.ts";
 import type { GitHubProviderConfig } from "../config.ts";
 import { log } from "../logger.ts";
+import { withBackoff } from "./backoff.ts";
 
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
 const GITHUB_REST = "https://api.github.com";
-
-const INITIAL_DELAY_MS = 1000;
-const JITTER_MS = 500;
-const MAX_DELAY_MS = 60000;
-const MAX_BACKOFF_RETRIES = 5;
-
-async function withBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = MAX_BACKOFF_RETRIES
-): Promise<T> {
-  let delay = INITIAL_DELAY_MS;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: unknown) {
-      const isRateLimit =
-        (err instanceof Error && err.message.includes("429")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("ratelimit")) ||
-        (err instanceof Error && err.message.toLowerCase().includes("rate limit"));
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      log.debug("Rate limited, backing off", { component: "github", attempt, delayMs: delay + Math.random() * JITTER_MS });
-      const jitter = Math.random() * JITTER_MS;
-      await Bun.sleep(delay + jitter);
-      delay = Math.min(delay * 2, MAX_DELAY_MS);
-    }
-  }
-  throw new Error("Unreachable");
-}
 
 /** Parsed query filters for client-side filtering of project items. */
 interface QueryFilters {
@@ -126,7 +97,7 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
         },
         body: JSON.stringify({ query, variables }),
       })
-    );
+    , { component: "github" });
     logger.debug("GraphQL response", { status: res.status, durationMs: Date.now() - start });
 
     if (!res.ok) {
@@ -157,7 +128,7 @@ export function createGitHubProvider(config: GitHubProviderConfig): TicketProvid
           ...options?.headers,
         },
       })
-    );
+    , { component: "github" });
     logger.debug("REST response", { path, status: res.status, durationMs: Date.now() - start });
     if (!res.ok && res.status !== 201) {
       const text = await res.text().catch(() => "");

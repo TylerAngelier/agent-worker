@@ -70,16 +70,18 @@ export function formatConsoleLine(
     hour12: false,
   });
 
-  // Special case: bare Claude output lines
-  if (msg === "claude" && ctx?.line !== undefined) {
+  // Component tag (e.g. [provider:linear])
+  const component = ctx?.component as string | undefined;
+
+  // Special case: bare executor stream output lines (component tag identifies the executor; message is always "stream")
+  const executorComponents = ["claude", "codex", "docker", "opencode", "pi"];
+  if (component && executorComponents.includes(component) && ctx?.line !== undefined) {
     return `  ${colors.dim("│")} ${ctx.line}`;
   }
 
   const colorFn = levelColors[level] ?? colors.gray;
   const badge = colorFn(level.toUpperCase().padEnd(5));
 
-  // Component tag (e.g. [provider:linear])
-  const component = ctx?.component as string | undefined;
   const componentTag = component ? `${colors.cyan(`[${component}]`)} ` : "";
 
   // Exclude component from the context key=value pairs

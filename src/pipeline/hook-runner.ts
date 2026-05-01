@@ -2,7 +2,7 @@
  * @module src/pipeline/hook-runner — Sequential shell hook execution with fail-fast semantics.
  */
 import { interpolate, type TaskVars } from "./interpolate.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
 
 export type HookResult = {
   /** Whether all hook commands completed successfully. */
@@ -28,30 +28,34 @@ export async function runHooks(
   cwd: string,
   vars: TaskVars,
 ): Promise<HookResult> {
-  for (const raw of commands) {
-    const command = interpolate(raw, vars);
-    log.info("Running hook", { command });
+  const log = logOuter.child("hooks");
 
-    const proc = Bun.spawn(["sh", "-c", command], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+  return time("runHooks", async () => {
+    for (const raw of commands) {
+      const command = interpolate(raw, vars);
+      log.info("Running hook", { command });
 
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
+      const proc = Bun.spawn(["sh", "-c", command], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
 
-    log.debug("Hook output", { command, stdout, stderr });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
 
-    if (exitCode !== 0) {
-      const output = (stderr || stdout).trim();
-      log.error("Hook failed", { command, exitCode, output });
-      return { success: false, failedCommand: command, exitCode, output };
+      log.debug("Hook output", { command, stdout, stderr });
+
+      if (exitCode !== 0) {
+        const output = (stderr || stdout).trim();
+        log.error("Hook failed", { command, exitCode, output });
+        return { success: false, failedCommand: command, exitCode, output };
+      }
     }
-  }
 
-  return { success: true };
+    return { success: true };
+  });
 }

@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("codex");
 
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
@@ -25,7 +27,7 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
     name: "codex",
     needsWorktree: false,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Codex started", { timeoutMs, model: options?.model });
+      logger.info("Codex started", { timeoutMs, model: options?.model });
 
       const args = ["codex", "exec"];
       if (options?.model) {
@@ -45,32 +47,36 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
         proc.kill();
       }, timeoutMs);
 
-      const [stdout, stderr] = await Promise.all([
-        streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stdout", line });
-        }),
-        streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stderr", line });
-        }),
-      ]);
+      const result = await time("codex.run", async () => {
+        const [stdout, stderr] = await Promise.all([
+          streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
+            logger.debug("codex", { stream: "stdout", line });
+          }),
+          streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
+            logger.debug("codex", { stream: "stderr", line });
+          }),
+        ]);
 
-      const exitCode = await proc.exited;
-      clearTimeout(timer);
+        const exitCode = await proc.exited;
+        clearTimeout(timer);
 
-      const output = (stdout + "\n" + stderr).trim();
+        const output = (stdout + "\n" + stderr).trim();
 
-      if (timedOut) {
-        log.error("Codex timed out", { timeoutMs });
-        return { success: false, output, timedOut: true, exitCode: null };
-      }
+        if (timedOut) {
+          logger.error("Codex timed out", { timeoutMs });
+          return { success: false, output, timedOut: true, exitCode: null };
+        }
 
-      if (exitCode !== 0) {
-        log.error("Codex failed", { exitCode });
-      } else {
-        log.info("Codex completed successfully");
-      }
+        if (exitCode !== 0) {
+          logger.error("Codex failed", { exitCode });
+        } else {
+          logger.info("Codex completed successfully");
+        }
 
-      return { success: exitCode === 0, output, timedOut: false, exitCode };
+        return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
+
+      return result;
     },
   };
 }

@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
 
 /** Options for creating an OpenCode executor. */
 export interface OpenCodeExecutorOptions {
@@ -20,11 +20,13 @@ export interface OpenCodeExecutorOptions {
  * @returns {@link CodeExecutor} configured for OpenCode
  */
 export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeExecutor {
+  const execLog = log.child("opencode");
   return {
     name: "opencode",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("opencode started", { timeoutMs, model: options?.model });
+      return time("opencode", async () => {
+      execLog.info("opencode started", { timeoutMs, model: options?.model });
 
       const args = ["opencode"];
       if (options?.model) {
@@ -46,10 +48,10 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("opencode", { stream: "stdout", line });
+          execLog.info("opencode", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("opencode", { stream: "stderr", line });
+          execLog.info("opencode", { stream: "stderr", line });
         }),
       ]);
 
@@ -59,17 +61,18 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("opencode timed out", { timeoutMs });
+        execLog.error("opencode timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("opencode failed", { exitCode });
+        execLog.error("opencode failed", { exitCode });
       } else {
-        log.info("opencode completed successfully");
+        execLog.info("opencode completed successfully");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

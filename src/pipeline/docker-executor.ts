@@ -1,6 +1,6 @@
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter } from "../logger.ts";
 
 export interface DockerExecutorConfig {
   image: string;
@@ -47,6 +47,7 @@ function resolveMountSource(source: string): string {
 }
 
 export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor {
+  const log = logOuter.child("docker");
   return {
     name: "docker",
     needsWorktree: true,

@@ -5,7 +5,9 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log, time } from "./logger.ts";
+
+const logger = log.child("scheduler");
 
 /**
  * Returns the last N lines of a string.
@@ -58,10 +60,12 @@ export async function processTicket(options: {
 
   // Claim the ticket
   try {
-    await provider.transitionStatus(ticket.id, config.provider.statuses.in_progress);
-    log.info("Ticket claimed", { ticketId: ticket.identifier });
+    await time(`scheduler.claimTicket:${ticket.identifier}`, () =>
+      provider.transitionStatus(ticket.id, config.provider.statuses.in_progress)
+    );
+    logger.info("Ticket claimed", { ticketId: ticket.identifier });
   } catch (err) {
-    log.warn("Failed to claim ticket", {
+    logger.warn("Failed to claim ticket", {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -75,7 +79,7 @@ export async function processTicket(options: {
 
   for (let attempt = 0; attempt <= config.executor.retries; attempt++) {
     if (attempt > 0) {
-      log.warn("Retrying pipeline", {
+      logger.warn("Retrying pipeline", {
         ticketId: ticket.identifier,
         attempt,
         maxRetries: config.executor.retries,
@@ -83,19 +87,23 @@ export async function processTicket(options: {
     }
 
     try {
-      lastResult = await executePipeline({
-        ticket,
-        preHooks: config.hooks.pre,
-        postHooks: config.hooks.post,
-        repoCwd: config.repo.path,
-        executor,
-        timeoutMs: config.executor.timeout_seconds * 1000,
-        customPrompt: config.prompts.implement,
-      });
+      lastResult = await time(
+        `scheduler.executePipeline:${ticket.identifier}.attempt${attempt}`,
+        () =>
+          executePipeline({
+            ticket,
+            preHooks: config.hooks.pre,
+            postHooks: config.hooks.post,
+            repoCwd: config.repo.path,
+            executor,
+            timeoutMs: config.executor.timeout_seconds * 1000,
+            customPrompt: config.prompts.implement,
+          })
+      );
 
       if (lastResult.success) break;
     } catch (err) {
-      log.error("Pipeline threw unexpected error", {
+      logger.error("Pipeline threw unexpected error", {
         ticketId: ticket.identifier,
         attempt,
         error: err instanceof Error ? err.message : String(err),
@@ -122,7 +130,7 @@ export async function processTicket(options: {
       ].join("\n");
       await provider.postComment(ticket.id, comment);
 
-      log.info("Ticket in code review", { ticketId: ticket.identifier });
+      logger.info("Ticket in code review", { ticketId: ticket.identifier });
       const branch = buildTaskVars(ticket).branch;
       return { outcome: "code_review", ticketId: ticket.id, branch };
     } else {
@@ -140,14 +148,14 @@ export async function processTicket(options: {
       ].join("\n");
 
       await provider.postComment(ticket.id, comment);
-      log.error("Ticket failed", {
+      logger.error("Ticket failed", {
         ticketId: ticket.identifier,
         stage: lastResult?.stage,
       });
       return { outcome: "failed" };
     }
   } catch (err) {
-    log.error("Failed to update ticket status", {
+    logger.error("Failed to update ticket status", {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });

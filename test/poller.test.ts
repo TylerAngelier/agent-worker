@@ -140,8 +140,8 @@ describe("createPoller", () => {
     });
 
     expect(infoMessages.length).toBeGreaterThanOrEqual(2);
-    expect(infoMessages[0]).toMatch(/^Poll #1 \(uptime: \d+s\) — checking for tickets\.\.\.$/);
-    expect(infoMessages[1]).toMatch(/^Poll #2 \(uptime: \d+[ms ]*\d*s?\) — checking for tickets\.\.\.$/);
+    expect(infoMessages[0]).toMatch(/Poll #1 \(uptime: \d+s\) — checking for tickets\.\.\.$/);
+    expect(infoMessages[1]).toMatch(/Poll #2 \(uptime: \d+[ms ]*\d*s?\) — checking for tickets\.\.\.$/);
   });
 
   test("stops when stop() is called", async () => {

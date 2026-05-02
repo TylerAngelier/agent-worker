@@ -2,7 +2,9 @@
  * @module src/pipeline/hook-runner — Sequential shell hook execution with fail-fast semantics.
  */
 import { interpolate, type TaskVars } from "./interpolate.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("hook-runner");
 
 export type HookResult = {
   /** Whether all hook commands completed successfully. */
@@ -28,9 +30,10 @@ export async function runHooks(
   cwd: string,
   vars: TaskVars,
 ): Promise<HookResult> {
+  return time(`runHooks`, async () => {
   for (const raw of commands) {
     const command = interpolate(raw, vars);
-    log.info("Running hook", { command });
+    logger.info("Running hook", { command });
 
     const proc = Bun.spawn(["sh", "-c", command], {
       cwd,
@@ -44,14 +47,15 @@ export async function runHooks(
       new Response(proc.stderr).text(),
     ]);
 
-    log.debug("Hook output", { command, stdout, stderr });
+    logger.debug("Hook output", { command, stdout, stderr });
 
     if (exitCode !== 0) {
       const output = (stderr || stdout).trim();
-      log.error("Hook failed", { command, exitCode, output });
+      logger.error("Hook failed", { command, exitCode, output });
       return { success: false, failedCommand: command, exitCode, output };
     }
   }
 
   return { success: true };
+  });
 }

@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
 
 /** Options for creating a Pi executor. */
 export interface PiExecutorOptions {
@@ -21,11 +21,13 @@ export interface PiExecutorOptions {
  * @returns {@link CodeExecutor} configured for Pi
  */
 export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
+  const execLog = log.child("pi");
   return {
     name: "pi",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("pi started", { timeoutMs, model: options?.model });
+      return time("pi", async () => {
+      execLog.info("pi started", { timeoutMs, model: options?.model });
 
       const args = ["pi"];
       if (options?.model) {
@@ -47,10 +49,10 @@ export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("pi", { stream: "stdout", line });
+          execLog.info("pi", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("pi", { stream: "stderr", line });
+          execLog.info("pi", { stream: "stderr", line });
         }),
       ]);
 
@@ -60,17 +62,18 @@ export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("pi timed out", { timeoutMs });
+        execLog.error("pi timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("pi failed", { exitCode });
+        execLog.error("pi failed", { exitCode });
       } else {
-        log.info("pi completed successfully");
+        execLog.info("pi completed successfully");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

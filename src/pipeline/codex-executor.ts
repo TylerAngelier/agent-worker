@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
 
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
@@ -21,11 +21,13 @@ export interface CodexExecutorOptions {
  * @returns {@link CodeExecutor} configured for Codex
  */
 export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecutor {
+  const execLog = log.child("codex");
   return {
     name: "codex",
     needsWorktree: false,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Codex started", { timeoutMs, model: options?.model });
+      return time("codex", async () => {
+      execLog.info("Codex started", { timeoutMs, model: options?.model });
 
       const args = ["codex", "exec"];
       if (options?.model) {
@@ -47,10 +49,10 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stdout", line });
+          execLog.info("codex", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stderr", line });
+          execLog.info("codex", { stream: "stderr", line });
         }),
       ]);
 
@@ -60,17 +62,18 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("Codex timed out", { timeoutMs });
+        execLog.error("Codex timed out", { timeoutMs });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("Codex failed", { exitCode });
+        execLog.error("Codex failed", { exitCode });
       } else {
-        log.info("Codex completed successfully");
+        execLog.info("Codex completed successfully");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

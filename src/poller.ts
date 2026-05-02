@@ -1,7 +1,7 @@
 /** @module src/poller — Long-running polling loop that periodically fetches ready tickets and dispatches them to a handler. */
 
 import type { Ticket, TicketProvider } from "./providers/types.ts";
-import { log } from "./logger.ts";
+import { log, time } from "./logger.ts";
 
 /**
  * Creates an interruptible polling loop that periodically fetches ready tickets
@@ -27,6 +27,9 @@ export function createPoller(options: {
   let wakeSleep: (() => void) | null = null;
   let pollCount = 0;
   const startTime = Date.now();
+  // Lazy-init: must be evaluated inside the factory so the global `log`
+  // singleton is already wired (test suites call initLogger before factory).
+  const logger = log.child("poller");
 
   /**
    * Promise-based sleep that can be interrupted early by calling the returned
@@ -60,31 +63,33 @@ export function createPoller(options: {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         const uptime = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        log.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
-        try {
-          const tickets = await options.provider.fetchReadyTickets();
-          if (tickets.length > 0) {
-            const ticket = tickets[0]!;
-            log.info("Ticket found", {
-              ticketId: ticket.identifier,
-              title: ticket.title,
-            });
-            try {
-              await options.onTicket(ticket);
-            } catch (err) {
-              log.error("onTicket handler failed", {
+        await time(`poll:${pollCount}`, async () => {
+          logger.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
+          try {
+            const tickets = await options.provider.fetchReadyTickets();
+            if (tickets.length > 0) {
+              const ticket = tickets[0]!;
+              logger.info("Ticket found", {
                 ticketId: ticket.identifier,
-                error: err instanceof Error ? err.message : String(err),
+                title: ticket.title,
               });
+              try {
+                await options.onTicket(ticket);
+              } catch (err) {
+                logger.error("onTicket handler failed", {
+                  ticketId: ticket.identifier,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
+            } else {
+              logger.debug("No tickets found");
             }
-          } else {
-            log.debug("No tickets found");
+          } catch (err) {
+            logger.error("Poll cycle failed", {
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
-        } catch (err) {
-          log.error("Poll cycle failed", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        });
 
         if (!isRunning) break;
         await interruptibleSleep(options.intervalMs);

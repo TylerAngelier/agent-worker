@@ -194,19 +194,24 @@ export function createJiraProvider(config: JiraProviderConfig): TicketProvider {
 
     async fetchComments(ticketId: string, since?: string): Promise<TicketComment[]> {
       logger.debug("Fetching comments", { ticketId, since });
-      const params = new URLSearchParams();
-      if (since) params.set("since", since);
-      const query = params.toString() ? `?${params}` : "";
-      const res = await jiraFetch(`/issue/${ticketId}/comment${query}`);
+      // Jira's comment endpoint does not support a `since` query parameter,
+      // so we always fetch all comments and filter client-side.
+      const res = await jiraFetch(`/issue/${ticketId}/comment`);
       const data = (await res.json()) as JiraCommentsResponse;
 
-      const results = data.comments.map((c) => ({
+      let results = data.comments.map((c) => ({
         id: c.id,
         author: c.author.displayName || c.author.name,
         body: c.body,
         createdAt: c.created,
       }));
-      logger.debug("Fetched comments", { ticketId, count: results.length });
+
+      if (since) {
+        const sinceDate = new Date(since);
+        results = results.filter((c) => new Date(c.createdAt) > sinceDate);
+      }
+
+      logger.debug("Fetched comments", { ticketId, total: data.comments.length, filtered: results.length, since });
       return results;
     },
   };

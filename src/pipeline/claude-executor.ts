@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
+
+const log = logOuter.child("claude-executor");
 
 /** Options for creating a Claude Code executor. */
 export interface ClaudeExecutorOptions {
@@ -25,6 +27,7 @@ export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecu
     name: "claude",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
+      return time("claude-executor.run", async () => {
       log.info("Claude Code started", { timeoutMs, model: options?.model });
 
       const args = ["claude", "--print"];
@@ -71,6 +74,7 @@ export function createClaudeExecutor(options?: ClaudeExecutorOptions): CodeExecu
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

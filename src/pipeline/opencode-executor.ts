@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
+
+const log = logOuter.child("opencode-executor");
 
 /** Options for creating an OpenCode executor. */
 export interface OpenCodeExecutorOptions {
@@ -24,6 +26,7 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
     name: "opencode",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
+      return time("opencode-executor.run", async () => {
       log.info("opencode started", { timeoutMs, model: options?.model });
 
       const args = ["opencode"];
@@ -70,6 +73,7 @@ export function createOpencodeExecutor(options?: OpenCodeExecutorOptions): CodeE
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

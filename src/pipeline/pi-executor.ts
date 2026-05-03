@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
+
+const log = logOuter.child("pi-executor");
 
 /** Options for creating a Pi executor. */
 export interface PiExecutorOptions {
@@ -25,6 +27,7 @@ export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
     name: "pi",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
+      return time("pi-executor.run", async () => {
       log.info("pi started", { timeoutMs, model: options?.model });
 
       const args = ["pi"];
@@ -71,6 +74,7 @@ export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

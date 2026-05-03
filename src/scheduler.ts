@@ -5,7 +5,9 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log, time } from "./logger.ts";
+
+const logger = log.child("scheduler");
 
 /**
  * Returns the last N lines of a string.
@@ -58,10 +60,11 @@ export async function processTicket(options: {
 
   // Claim the ticket
   try {
-    await provider.transitionStatus(ticket.id, config.provider.statuses.in_progress);
-    log.info("Ticket claimed", { ticketId: ticket.identifier });
+    await time("scheduler.claimTicket", () =>
+      provider.transitionStatus(ticket.id, config.provider.statuses.in_progress));
+    logger.info("Ticket claimed", { ticketId: ticket.identifier });
   } catch (err) {
-    log.warn("Failed to claim ticket", {
+    logger.warn("Failed to claim ticket", {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -75,7 +78,7 @@ export async function processTicket(options: {
 
   for (let attempt = 0; attempt <= config.executor.retries; attempt++) {
     if (attempt > 0) {
-      log.warn("Retrying pipeline", {
+      logger.warn("Retrying pipeline", {
         ticketId: ticket.identifier,
         attempt,
         maxRetries: config.executor.retries,
@@ -83,7 +86,7 @@ export async function processTicket(options: {
     }
 
     try {
-      lastResult = await executePipeline({
+      lastResult = await time("scheduler.executePipeline", () => executePipeline({
         ticket,
         preHooks: config.hooks.pre,
         postHooks: config.hooks.post,
@@ -91,11 +94,11 @@ export async function processTicket(options: {
         executor,
         timeoutMs: config.executor.timeout_seconds * 1000,
         customPrompt: config.prompts.implement,
-      });
+      }));
 
       if (lastResult.success) break;
     } catch (err) {
-      log.error("Pipeline threw unexpected error", {
+      logger.error("Pipeline threw unexpected error", {
         ticketId: ticket.identifier,
         attempt,
         error: err instanceof Error ? err.message : String(err),
@@ -111,7 +114,8 @@ export async function processTicket(options: {
   // Update final status
   try {
     if (lastResult?.success) {
-      await provider.transitionStatus(ticket.id, config.provider.statuses.code_review);
+      await time("scheduler.transitionToCodeReview", () =>
+        provider.transitionStatus(ticket.id, config.provider.statuses.code_review));
 
       const output = lastNLines(lastResult.output ?? "", 50);
       const comment = [
@@ -120,13 +124,15 @@ export async function processTicket(options: {
         "Task completed. Awaiting code review.",
         ...(output ? ["", "**Output (last 50 lines):**", "```", output, "```"] : []),
       ].join("\n");
-      await provider.postComment(ticket.id, comment);
+      await time("scheduler.postSuccessComment", () =>
+        provider.postComment(ticket.id, comment));
 
-      log.info("Ticket in code review", { ticketId: ticket.identifier });
+      logger.info("Ticket in code review", { ticketId: ticket.identifier });
       const branch = buildTaskVars(ticket).branch;
       return { outcome: "code_review", ticketId: ticket.id, branch };
     } else {
-      await provider.transitionStatus(ticket.id, config.provider.statuses.failed);
+      await time("scheduler.transitionToFailed", () =>
+        provider.transitionStatus(ticket.id, config.provider.statuses.failed));
 
       const errorOutput = lastNLines(lastResult?.error ?? "Unknown error", 50);
       const comment = [
@@ -139,15 +145,16 @@ export async function processTicket(options: {
         "```",
       ].join("\n");
 
-      await provider.postComment(ticket.id, comment);
-      log.error("Ticket failed", {
+      await time("scheduler.postFailComment", () =>
+        provider.postComment(ticket.id, comment));
+      logger.error("Ticket failed", {
         ticketId: ticket.identifier,
         stage: lastResult?.stage,
       });
       return { outcome: "failed" };
     }
   } catch (err) {
-    log.error("Failed to update ticket status", {
+    logger.error("Failed to update ticket status", {
       ticketId: ticket.identifier,
       error: err instanceof Error ? err.message : String(err),
     });

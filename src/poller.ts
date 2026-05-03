@@ -1,7 +1,7 @@
 /** @module src/poller — Long-running polling loop that periodically fetches ready tickets and dispatches them to a handler. */
 
 import type { Ticket, TicketProvider } from "./providers/types.ts";
-import { log } from "./logger.ts";
+import { log as logOuter, time } from "./logger.ts";
 
 /**
  * Creates an interruptible polling loop that periodically fetches ready tickets
@@ -23,6 +23,7 @@ export function createPoller(options: {
   intervalMs: number;
   onTicket: (ticket: Ticket) => Promise<void>;
 }): { start: () => Promise<void>; stop: () => void } {
+  const log = logOuter.child("poller");
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
   let pollCount = 0;
@@ -62,7 +63,7 @@ export function createPoller(options: {
         const uptime = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
         log.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
         try {
-          const tickets = await options.provider.fetchReadyTickets();
+          const tickets = await time("fetchReadyTickets", () => options.provider.fetchReadyTickets());
           if (tickets.length > 0) {
             const ticket = tickets[0]!;
             log.info("Ticket found", {
@@ -70,7 +71,7 @@ export function createPoller(options: {
               title: ticket.title,
             });
             try {
-              await options.onTicket(ticket);
+              await time(`onTicket:${ticket.identifier}`, () => options.onTicket(ticket));
             } catch (err) {
               log.error("onTicket handler failed", {
                 ticketId: ticket.identifier,

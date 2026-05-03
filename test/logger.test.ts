@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn, type Mock } from "bun:test";
-import { createLogger } from "../src/logger.ts";
+import { createLogger, time, initLogger } from "../src/logger.ts";
 import { readFileSync, mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -92,5 +92,150 @@ describe("createLogger", () => {
     logger.info("should appear");
 
     expect(logSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("time", () => {
+  beforeEach(() => {
+    initLogger({ level: "debug" });
+  });
+
+  test("returns the result of the async function on success", async () => {
+    const result = await time("test-op", async () => 42);
+    expect(result).toBe(42);
+  });
+
+  test("logs duration on success", async () => {
+    logSpy.mockClear();
+
+    await time("success-op", async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return "done";
+    });
+
+    const debugMessages = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => {
+        try {
+          const parsed = JSON.parse(m);
+          return parsed.message === "success-op completed";
+        } catch {
+          return false;
+        }
+      });
+    expect(debugMessages.length).toBe(1);
+  });
+
+  test("re-throws errors from the wrapped function", async () => {
+    const err = new Error("boom");
+    let caught: Error | undefined;
+
+    try {
+      await time("failing-op", async () => {
+        throw err;
+      });
+    } catch (e) {
+      caught = e as Error;
+    }
+
+    expect(caught).toBe(err);
+  });
+
+  test("logs error and duration on failure", async () => {
+    logSpy.mockClear();
+
+    try {
+      await time("failing-op", async () => {
+        throw new Error("expected failure");
+      });
+    } catch {
+      // expected
+    }
+
+    const debugMessages = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => {
+        try {
+          const parsed = JSON.parse(m);
+          return parsed.message === "failing-op failed";
+        } catch {
+          return false;
+        }
+      });
+    expect(debugMessages.length).toBe(1);
+  });
+
+  test("includes durationMs in success log", async () => {
+    logSpy.mockClear();
+
+    await time("timed-op", async () => "ok");
+
+    const entry = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .map((m) => {
+        try {
+          return JSON.parse(m);
+        } catch {
+          return null;
+        }
+      })
+      .find((p) => p?.message === "timed-op completed");
+
+    expect(entry).toBeDefined();
+    expect(typeof entry.durationMs).toBe("number");
+    expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("includes error message in failure log", async () => {
+    logSpy.mockClear();
+
+    try {
+      await time("error-op", async () => {
+        throw new Error("specific-error");
+      });
+    } catch {
+      // expected
+    }
+
+    const entry = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .map((m) => {
+        try {
+          return JSON.parse(m);
+        } catch {
+          return null;
+        }
+      })
+      .find((p) => p?.message === "error-op failed");
+
+    expect(entry).toBeDefined();
+    expect(entry.error).toBe("specific-error");
+  });
+
+  test("handles non-Error throws in failure log", async () => {
+    logSpy.mockClear();
+
+    try {
+      await time("string-throw", async () => {
+        // eslint-disable-next-line no-throw-literal
+        throw "raw string error";
+      });
+    } catch {
+      // expected
+    }
+
+    const entry = logSpy.mock.calls
+      .map((c) => c[0] as string)
+      .map((m) => {
+        try {
+          return JSON.parse(m);
+        } catch {
+          return null;
+        }
+      })
+      .find((p) => p?.message === "string-throw failed");
+
+    expect(entry).toBeDefined();
+    expect(entry.error).toBe("raw string error");
   });
 });

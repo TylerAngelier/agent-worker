@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
+
+const log = logOuter.child("codex-executor");
 
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
@@ -25,6 +27,7 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
     name: "codex",
     needsWorktree: false,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
+      return time("codex-executor.run", async () => {
       log.info("Codex started", { timeoutMs, model: options?.model });
 
       const args = ["codex", "exec"];
@@ -71,6 +74,7 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

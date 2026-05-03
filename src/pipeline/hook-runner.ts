@@ -2,7 +2,9 @@
  * @module src/pipeline/hook-runner — Sequential shell hook execution with fail-fast semantics.
  */
 import { interpolate, type TaskVars } from "./interpolate.ts";
-import { log } from "../logger.ts";
+import { log as rootLog } from "../logger.ts";
+
+const log = rootLog.child("hook-runner");
 
 export type HookResult = {
   /** Whether all hook commands completed successfully. */

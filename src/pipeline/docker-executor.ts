@@ -1,6 +1,8 @@
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log, time } from "../logger.ts";
+
+const logger = log.child("docker");
 
 export interface DockerExecutorConfig {
   image: string;
@@ -51,7 +53,8 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
     name: "docker",
     needsWorktree: true,
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
-      log.info("Docker executor started", { image: config.image, cwd, timeoutMs });
+      return time("docker:run", async () => {
+      logger.info("started", { image: config.image, cwd, timeoutMs });
 
       const dockerArgs: string[] = [
         "run",
@@ -107,7 +110,7 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
 
       dockerArgs.push(...command);
 
-      log.debug("Docker run command", { dockerArgs: dockerArgs.join(" ") });
+      logger.debug("command", { dockerArgs: dockerArgs.join(" ") });
 
       const spawned = spawnOrError(
         ["docker", ...dockerArgs],
@@ -126,10 +129,10 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
 
       const [stdout, stderr] = await Promise.all([
         streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("docker", { stream: "stdout", line });
+          logger.info("stream", { stream: "stdout", line });
         }),
         streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("docker", { stream: "stderr", line });
+          logger.info("stream", { stream: "stderr", line });
         }),
       ]);
 
@@ -139,17 +142,18 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
       const output = (stdout + "\n" + stderr).trim();
 
       if (timedOut) {
-        log.error("Docker executor timed out", { timeoutMs, image: config.image });
+        logger.error("timed out", { timeoutMs, image: config.image });
         return { success: false, output, timedOut: true, exitCode: null };
       }
 
       if (exitCode !== 0) {
-        log.error("Docker executor failed", { exitCode, image: config.image });
+        logger.error("failed", { exitCode, image: config.image });
       } else {
-        log.info("Docker executor completed successfully");
+        logger.info("completed");
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

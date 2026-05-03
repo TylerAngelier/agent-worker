@@ -5,7 +5,7 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log as logOuter, time } from "./logger.ts";
 
 /**
  * Returns the last N lines of a string.
@@ -55,10 +55,11 @@ export async function processTicket(options: {
   executor?: CodeExecutor;
 }): Promise<ProcessTicketResult> {
   const { ticket, provider, config } = options;
+  const log = logOuter.child("scheduler");
 
   // Claim the ticket
   try {
-    await provider.transitionStatus(ticket.id, config.provider.statuses.in_progress);
+    await time("claimTicket", () => provider.transitionStatus(ticket.id, config.provider.statuses.in_progress));
     log.info("Ticket claimed", { ticketId: ticket.identifier });
   } catch (err) {
     log.warn("Failed to claim ticket", {
@@ -83,7 +84,7 @@ export async function processTicket(options: {
     }
 
     try {
-      lastResult = await executePipeline({
+      lastResult = await time(`executePipeline:attempt${attempt}`, () => executePipeline({
         ticket,
         preHooks: config.hooks.pre,
         postHooks: config.hooks.post,
@@ -91,7 +92,7 @@ export async function processTicket(options: {
         executor,
         timeoutMs: config.executor.timeout_seconds * 1000,
         customPrompt: config.prompts.implement,
-      });
+      }));
 
       if (lastResult.success) break;
     } catch (err) {

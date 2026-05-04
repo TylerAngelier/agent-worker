@@ -2,7 +2,9 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as rootLog, time } from "../logger.ts";
+
+const log = rootLog.child("codex-executor");
 
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
@@ -27,50 +29,52 @@ export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecuto
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
       log.info("Codex started", { timeoutMs, model: options?.model });
 
-      const args = ["codex", "exec"];
-      if (options?.model) {
-        args.push("--model", options.model);
-      }
-      args.push("--full-auto", prompt);
+      return time("codex.run", async () => {
+        const args = ["codex", "exec"];
+        if (options?.model) {
+          args.push("--model", options.model);
+        }
+        args.push("--full-auto", prompt);
 
-      const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
+        const spawned = spawnOrError(args, { cwd, stdout: "pipe", stderr: "pipe" });
 
-      if ("success" in spawned) return spawned;
+        if ("success" in spawned) return spawned;
 
-      const proc = spawned.proc;
+        const proc = spawned.proc;
 
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        proc.kill();
-      }, timeoutMs);
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          proc.kill();
+        }, timeoutMs);
 
-      const [stdout, stderr] = await Promise.all([
-        streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stdout", line });
-        }),
-        streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
-          log.info("codex", { stream: "stderr", line });
-        }),
-      ]);
+        const [stdout, stderr] = await Promise.all([
+          streamToLines(proc.stdout as ReadableStream<Uint8Array>, (line) => {
+            log.info("codex", { stream: "stdout", line });
+          }),
+          streamToLines(proc.stderr as ReadableStream<Uint8Array>, (line) => {
+            log.info("codex", { stream: "stderr", line });
+          }),
+        ]);
 
-      const exitCode = await proc.exited;
-      clearTimeout(timer);
+        const exitCode = await proc.exited;
+        clearTimeout(timer);
 
-      const output = (stdout + "\n" + stderr).trim();
+        const output = (stdout + "\n" + stderr).trim();
 
-      if (timedOut) {
-        log.error("Codex timed out", { timeoutMs });
-        return { success: false, output, timedOut: true, exitCode: null };
-      }
+        if (timedOut) {
+          log.error("Codex timed out", { timeoutMs });
+          return { success: false, output, timedOut: true, exitCode: null };
+        }
 
-      if (exitCode !== 0) {
-        log.error("Codex failed", { exitCode });
-      } else {
-        log.info("Codex completed successfully");
-      }
+        if (exitCode !== 0) {
+          log.error("Codex failed", { exitCode });
+        } else {
+          log.info("Codex completed successfully");
+        }
 
-      return { success: exitCode === 0, output, timedOut: false, exitCode };
+        return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

@@ -1,6 +1,8 @@
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as rootLog, time } from "../logger.ts";
+
+const log = rootLog.child("docker-executor");
 
 export interface DockerExecutorConfig {
   image: string;
@@ -53,12 +55,13 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
     async run(prompt: string, cwd: string, timeoutMs: number): Promise<ExecutorResult> {
       log.info("Docker executor started", { image: config.image, cwd, timeoutMs });
 
-      const dockerArgs: string[] = [
-        "run",
-        "--rm",
-        "-i",
-        "-w", "/workspace",
-      ];
+      return time("docker.run", async () => {
+        const dockerArgs: string[] = [
+          "run",
+          "--rm",
+          "-i",
+          "-w", "/workspace",
+        ];
 
       // Mount the working directory (worktree)
       dockerArgs.push("-v", `${cwd}:/workspace`);
@@ -150,6 +153,7 @@ export function createDockerExecutor(config: DockerExecutorConfig): CodeExecutor
       }
 
       return { success: exitCode === 0, output, timedOut: false, exitCode };
+      });
     },
   };
 }

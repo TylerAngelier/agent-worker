@@ -2,7 +2,9 @@
  * @module src/pipeline/hook-runner — Sequential shell hook execution with fail-fast semantics.
  */
 import { interpolate, type TaskVars } from "./interpolate.ts";
-import { log } from "../logger.ts";
+import { log as rootLog, time } from "../logger.ts";
+
+const log = rootLog.child("hook-runner");
 
 export type HookResult = {
   /** Whether all hook commands completed successfully. */
@@ -32,24 +34,32 @@ export async function runHooks(
     const command = interpolate(raw, vars);
     log.info("Running hook", { command });
 
-    const proc = Bun.spawn(["sh", "-c", command], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
+    const hookResult = await time(`hook:${command}`, async () => {
+      const proc = Bun.spawn(["sh", "-c", command], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+
+      log.debug("Hook output", { command, stdout, stderr });
+
+      if (exitCode !== 0) {
+        const output = (stderr || stdout).trim();
+        log.error("Hook failed", { command, exitCode, output });
+        return { success: false as const, command, exitCode, output };
+      }
+
+      return { success: true as const };
     });
 
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-
-    log.debug("Hook output", { command, stdout, stderr });
-
-    if (exitCode !== 0) {
-      const output = (stderr || stdout).trim();
-      log.error("Hook failed", { command, exitCode, output });
-      return { success: false, failedCommand: command, exitCode, output };
+    if (!hookResult.success) {
+      return { success: false, failedCommand: hookResult.command, exitCode: hookResult.exitCode, output: hookResult.output };
     }
   }
 

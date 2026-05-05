@@ -23,6 +23,7 @@ export function createPoller(options: {
   intervalMs: number;
   onTicket: (ticket: Ticket) => Promise<void>;
 }): { start: () => Promise<void>; stop: () => void } {
+  const logger = log.child("poller");
   let isRunning = false;
   let wakeSleep: (() => void) | null = null;
   let pollCount = 0;
@@ -60,28 +61,28 @@ export function createPoller(options: {
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
         const uptime = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-        log.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
+        logger.info(`Poll #${pollCount} (uptime: ${uptime}) — checking for tickets...`);
         try {
           const tickets = await options.provider.fetchReadyTickets();
           if (tickets.length > 0) {
             const ticket = tickets[0]!;
-            log.info("Ticket found", {
+            logger.info("Ticket found", {
               ticketId: ticket.identifier,
               title: ticket.title,
             });
             try {
               await options.onTicket(ticket);
             } catch (err) {
-              log.error("onTicket handler failed", {
+              logger.error("onTicket handler failed", {
                 ticketId: ticket.identifier,
                 error: err instanceof Error ? err.message : String(err),
               });
             }
           } else {
-            log.debug("No tickets found");
+            logger.debug("No tickets found");
           }
         } catch (err) {
-          log.error("Poll cycle failed", {
+          logger.error("Poll cycle failed", {
             error: err instanceof Error ? err.message : String(err),
           });
         }

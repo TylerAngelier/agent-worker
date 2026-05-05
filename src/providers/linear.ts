@@ -160,7 +160,7 @@ export function createLinearProvider(config: LinearProviderConfig): TicketProvid
 
       let results = comments.map((c) => ({
         id: c.id,
-        author: c.body ?? "unknown",
+        author: c.userId ?? "unknown",
         body: c.body,
         createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
       }));

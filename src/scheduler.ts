@@ -5,7 +5,9 @@ import type { Ticket, TicketProvider } from "./providers/types.ts";
 import { executePipeline } from "./pipeline/pipeline.ts";
 import { createExecutor, type CodeExecutor } from "./pipeline/executor.ts";
 import { buildTaskVars } from "./pipeline/interpolate.ts";
-import { log } from "./logger.ts";
+import { log as logOuter, time } from "./logger.ts";
+
+const log = logOuter.child("scheduler");
 
 /**
  * Returns the last N lines of a string.
@@ -83,7 +85,7 @@ export async function processTicket(options: {
     }
 
     try {
-      lastResult = await executePipeline({
+      lastResult = await time("pipeline.run", () => executePipeline({
         ticket,
         preHooks: config.hooks.pre,
         postHooks: config.hooks.post,
@@ -91,7 +93,7 @@ export async function processTicket(options: {
         executor,
         timeoutMs: config.executor.timeout_seconds * 1000,
         customPrompt: config.prompts.implement,
-      });
+      }));
 
       if (lastResult.success) break;
     } catch (err) {

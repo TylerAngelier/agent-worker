@@ -2,7 +2,7 @@
  * @module src/pipeline/hook-runner — Sequential shell hook execution with fail-fast semantics.
  */
 import { interpolate, type TaskVars } from "./interpolate.ts";
-import { log } from "../logger.ts";
+import { log as logOuter, time } from "../logger.ts";
 
 export type HookResult = {
   /** Whether all hook commands completed successfully. */
@@ -28,28 +28,34 @@ export async function runHooks(
   cwd: string,
   vars: TaskVars,
 ): Promise<HookResult> {
+  const logger = logOuter.child("hook");
+
   for (const raw of commands) {
     const command = interpolate(raw, vars);
-    log.info("Running hook", { command });
+    logger.info("running", { command });
 
-    const proc = Bun.spawn(["sh", "-c", command], {
-      cwd,
-      stdout: "pipe",
-      stderr: "pipe",
+    const result = await time("hook.command", async () => {
+      const proc = Bun.spawn(["sh", "-c", command], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+
+      return { exitCode, stdout, stderr };
     });
 
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
+    logger.debug("output", { command, stdout: result.stdout, stderr: result.stderr });
 
-    log.debug("Hook output", { command, stdout, stderr });
-
-    if (exitCode !== 0) {
-      const output = (stderr || stdout).trim();
-      log.error("Hook failed", { command, exitCode, output });
-      return { success: false, failedCommand: command, exitCode, output };
+    if (result.exitCode !== 0) {
+      const output = (result.stderr || result.stdout).trim();
+      logger.error("failed", { command, exitCode: result.exitCode, output });
+      return { success: false, failedCommand: command, exitCode: result.exitCode, output };
     }
   }
 

@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter } from "../logger.ts";
 
 /** Options for creating a Codex executor. */
 export interface CodexExecutorOptions {
@@ -21,6 +21,7 @@ export interface CodexExecutorOptions {
  * @returns {@link CodeExecutor} configured for Codex
  */
 export function createCodexExecutor(options?: CodexExecutorOptions): CodeExecutor {
+  const log = logOuter.child("codex");
   return {
     name: "codex",
     needsWorktree: false,

@@ -2,7 +2,7 @@
 
 import type { CodeExecutor, ExecutorResult } from "./executor.ts";
 import { streamToLines, spawnOrError } from "./executor.ts";
-import { log } from "../logger.ts";
+import { log as logOuter } from "../logger.ts";
 
 /** Options for creating a Pi executor. */
 export interface PiExecutorOptions {
@@ -21,6 +21,7 @@ export interface PiExecutorOptions {
  * @returns {@link CodeExecutor} configured for Pi
  */
 export function createPiExecutor(options?: PiExecutorOptions): CodeExecutor {
+  const log = logOuter.child("pi");
   return {
     name: "pi",
     needsWorktree: true,

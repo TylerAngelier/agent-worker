@@ -104,7 +104,8 @@ describe("createPoller", () => {
   });
 
   test("logs poll count and uptime on each cycle", async () => {
-    // Re-init at info level so poll messages are logged
+    // Re-init at info level so poll messages are logged.
+    // The child logger is created inside createPoller, so it picks up the current level.
     initLogger({ level: "info" });
     let pollCount = 0;
 
